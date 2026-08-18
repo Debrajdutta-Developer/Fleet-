@@ -1,0 +1,2 @@
+# Enforce LF line endings for all Dart source files to prevent git checkout line ending mismatches on CI/CD runners.
+*.dart text eol=lf

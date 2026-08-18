@@ -1,0 +1,41 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+    collapse-after: 5
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'fix'
+    collapse-after: 5
+  - title: '📝 Documentation'
+    labels:
+      - 'documentation'
+      - 'docs'
+  - title: '🛠️ Maintenance & Refactor'
+    labels:
+      - 'chore'
+      - 'refactor'
+      - 'dependencies'
+
+autolabeler:
+  - label: 'feature'
+    expression: '^feat(\(.+\))?:'
+  - label: 'bug'
+    expression: '^fix(\(.+\))?:'
+  - label: 'documentation'
+    expression: '^docs(\(.+\))?:'
+  - label: 'chore'
+    expression: '^(chore|refactor|style|test)(\(.+\))?:'
+
+change-template: '- $TITLE (#$NUMBER) by @$AUTHOR'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/commits/v$RESOLVED_VERSION

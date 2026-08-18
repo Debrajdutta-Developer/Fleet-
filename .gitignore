@@ -1,0 +1,50 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.project
+.directory
+.trash/
+*.sublime-workspace
+
+# IntelliJ-based IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/
+
+# Flutter/Dart build files
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+
+# Web-specific build artifacts
+build/web/
+
+# Android-specific build artifacts
+android/app/libs/
+android/app/src/main/res/drawable-*/
+android/app/src/main/res/mipmap-*/
+android/key.properties
+
+# iOS-specific build artifacts
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.h
+ios/Runner/GeneratedPluginRegistrant.m
+
+# Local credentials
+google-services.json
+GoogleService-Info.plist

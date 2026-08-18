@@ -1,0 +1,8 @@
+{
+  "name": "FleetOS ERP",
+  "description": "Enterprise multi-tenant fleet and logistics management platform featuring vehicle telemetry, trip dispatching, driver safety tracking, HR & employee management, attendance, payroll, compliance management, and operational analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

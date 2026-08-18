@@ -1,0 +1,75 @@
+name: Flutter CI
+
+# প্রতিটি Push এবং Pull Request-এ এই পাইপলাইনটি রান করবে
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  schedule:
+    - cron: '0 0 * * *' # Scheduled daily run at 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compatibility_and_test:
+    name: Code Quality & Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      # ১. গিটহাব রিপোজিটরি থেকে কোড চেকআউট করা
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ২. লিনাক্স এনভায়রনমেন্টে জাভা সেটআপ করা (অ্যান্ড্রয়েড বিল্ড সাপোর্টের জন্য প্রয়োজনীয়)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # ৩. ফ্ল্যাটার এনভায়রনমেন্ট সেটআপ করা
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable' # আপনি চাইলে নির্দিষ্ট ভার্সনও উল্লেখ করতে পারেন (যেমন: flutter-version: '3.x.x')
+          cache: true       # প্রতিবার দ্রুত রান হওয়ার জন্য ডিপেন্ডেন্সি ক্যাশ করবে
+
+      # ৪. প্রজেক্টের সমস্ত প্যাকেজ/ডিপেন্ডেন্সি ডাউনলোড করা
+      - name: Install Dependencies
+        run: flutter pub get
+
+      # ৫. কোডের ফরম্যাটিং ঠিক করা (Code Formatting)
+      - name: Format Code
+        run: dart format .
+
+      # ৫.১ ফরম্যাটিং পরিবর্তনসমূহ অটো-কমিট করা
+      - name: Commit Formatting Fixes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto-format Dart files on CI"
+          file_pattern: "*.dart"
+
+      # ৬. স্ট্যাটিক অ্যানালাইসিস রান করা (Flutter Analyze)
+      - name: Analyze Code
+        run: flutter analyze
+
+      # ৭. সমস্ত ইউনিট এবং উইজেট টেস্ট রান করা (Flutter Test)
+      - name: Run Tests
+        run: flutter test
+
+  release_draft:
+    name: Semantic Versioning & Release Draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Run Release Drafter
+        uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        
