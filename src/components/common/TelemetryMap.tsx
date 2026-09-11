@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Activity, Fuel, Gauge, MapPin, Navigation, Radio, Scale, Truck } from 'lucide-react';
 import { Vehicle } from '../../types';
-import { Truck, Navigation, BatteryCharging, Fuel, ShieldAlert, Sparkles, MapPin } from 'lucide-react';
+import { useLiveTelemetry } from '../../live/useLiveTelemetry';
+import type { LiveTelemetryReading } from '../../live/telemetryClient';
 
 interface TelemetryMapProps {
   vehicles: Vehicle[];
@@ -8,191 +10,194 @@ interface TelemetryMapProps {
   selectedVehicleId?: string;
 }
 
+function freshnessBadge(reading: LiveTelemetryReading): string {
+  switch (reading.freshness) {
+    case 'live':
+      return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+    case 'recent':
+      return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
+    case 'stale':
+      return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+    default:
+      return 'bg-slate-500/15 text-slate-300 border-slate-500/30';
+  }
+}
+
+function motionLabel(reading: LiveTelemetryReading): string {
+  if (reading.motionState === 'moving') return 'Moving';
+  if (reading.motionState === 'idling') return 'Idling';
+  if (reading.motionState === 'stopped') return 'Stopped';
+  return 'Offline';
+}
+
 export const TelemetryMap: React.FC<TelemetryMapProps> = ({
   vehicles,
   onSelectVehicle,
   selectedVehicleId,
 }) => {
-  const [activeVehicle, setActiveVehicle] = useState<Vehicle | null>(() => {
-    return vehicles.find((v) => v.id === selectedVehicleId) || vehicles[0] || null;
-  });
+  const { readings, byVehicleId, loading, error, lastUpdatedAt } = useLiveTelemetry();
+  const [activeVehicleId, setActiveVehicleId] = useState<string | null>(selectedVehicleId ?? null);
 
-  // Calculate normalized positions for the map viewport (US Geographic Bounds approximation: Lat 25-50, Lng -125 to -70)
-  const getMapCoordinates = (lat: number, lng: number) => {
-    const minLat = 25.0;
-    const maxLat = 50.0;
-    const minLng = -125.0;
-    const maxLng = -70.0;
+  const linkedReadings = useMemo(
+    () => readings.filter((reading) => vehicles.some((vehicle) => vehicle.id === reading.vehicleId && !vehicle.deletedAt)),
+    [readings, vehicles]
+  );
 
-    const y = ((maxLat - lat) / (maxLat - minLat)) * 80 + 10;
-    const x = ((lng - minLng) / (maxLng - minLng)) * 80 + 10;
+  const activeReading = activeVehicleId
+    ? byVehicleId.get(activeVehicleId)
+    : linkedReadings[0];
 
-    return {
-      top: `${Math.max(8, Math.min(90, y))}%`,
-      left: `${Math.max(8, Math.min(92, x))}%`,
-    };
+  const activeVehicle = activeReading
+    ? vehicles.find((vehicle) => vehicle.id === activeReading.vehicleId) ?? null
+    : null;
+
+  const handleSelect = (reading: LiveTelemetryReading) => {
+    setActiveVehicleId(reading.vehicleId);
+    const vehicle = vehicles.find((item) => item.id === reading.vehicleId);
+    if (vehicle && onSelectVehicle) onSelectVehicle(vehicle);
   };
 
-  const handleMarkerClick = (vehicle: Vehicle) => {
-    setActiveVehicle(vehicle);
-    if (onSelectVehicle) onSelectVehicle(vehicle);
-  };
+  const pointLayout = useMemo(() => {
+    const points = linkedReadings.filter(
+      (reading) => typeof reading.latitude === 'number' && typeof reading.longitude === 'number'
+    );
+    if (points.length === 0) return new Map<string, { top: string; left: string }>();
+
+    const lats = points.map((reading) => reading.latitude as number);
+    const lngs = points.map((reading) => reading.longitude as number);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const latSpan = Math.max(maxLat - minLat, 0.01);
+    const lngSpan = Math.max(maxLng - minLng, 0.01);
+
+    return new Map(
+      points.map((reading) => {
+        const top = 12 + ((maxLat - (reading.latitude as number)) / latSpan) * 76;
+        const left = 10 + (((reading.longitude as number) - minLng) / lngSpan) * 80;
+        return [reading.vehicleId, { top: `${top}%`, left: `${left}%` }];
+      })
+    );
+  }, [linkedReadings]);
 
   return (
-    <div className="relative w-full h-80 sm:h-96 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden shadow-inner flex flex-col justify-between">
-      {/* Map Grid Vector Background */}
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <pattern id="grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#38bdf8" strokeWidth="0.75" />
-            </pattern>
-            <radialGradient id="radar-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#0284c7" stopOpacity="0.3" />
-              <stop offset="100%" stopColor="#0f172a" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#grid-pattern)" />
-          <circle cx="50%" cy="50%" r="45%" fill="url(#radar-glow)" />
-        </svg>
-      </div>
-
-      {/* Map Top Bar overlay */}
-      <div className="relative z-10 p-3 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
-            Live Telemetry Satellite Matrix (CAN-Bus GPS Feed)
-          </span>
+    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-inner">
+      <div className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/90 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Radio className="h-4 w-4 text-emerald-400" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-200">Authoritative live telemetry</p>
+            <p className="text-[11px] text-slate-400">Provider/device readings only. No simulated vehicle movement.</p>
+          </div>
         </div>
-        <div className="flex items-center space-x-3 text-xs text-slate-400">
-          <span className="flex items-center space-x-1">
-            <span className="h-2 w-2 rounded-full bg-blue-500 inline-block" />
-            <span>Active En-Route</span>
-          </span>
-          <span className="flex items-center space-x-1">
-            <span className="h-2 w-2 rounded-full bg-amber-500 inline-block" />
-            <span>Idle / Depot</span>
-          </span>
-          <span className="flex items-center space-x-1">
-            <span className="h-2 w-2 rounded-full bg-red-500 inline-block" />
-            <span>Maintenance</span>
-          </span>
+        <div className="text-[11px] text-slate-400">
+          {loading ? 'Connecting…' : error ? `Feed unavailable: ${error}` : `Feed vehicles: ${linkedReadings.length}`}
+          {lastUpdatedAt ? ` • refreshed ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ''}
         </div>
       </div>
 
-      {/* Interactive Vehicle Beacons / Markers */}
-      <div className="relative flex-1 w-full h-full overflow-hidden">
-        {vehicles
-          .filter((v) => !v.deletedAt)
-          .map((v) => {
-            const pos = getMapCoordinates(v.telemetry.latitude, v.telemetry.longitude);
-            const isSelected = (activeVehicle?.id || selectedVehicleId) === v.id;
-            let statusColor = 'bg-blue-500 shadow-blue-500/50';
-            if (v.status === 'idle') statusColor = 'bg-amber-500 shadow-amber-500/50';
-            if (v.status === 'maintenance') statusColor = 'bg-red-500 shadow-red-500/50';
-            if (v.status === 'registration') statusColor = 'bg-purple-500 shadow-purple-500/50';
+      {linkedReadings.length === 0 ? (
+        <div className="flex min-h-72 flex-col items-center justify-center px-6 py-10 text-center">
+          <Radio className="mb-3 h-8 w-8 text-slate-500" />
+          <h4 className="text-sm font-semibold text-slate-200">No live vehicle feed connected</h4>
+          <p className="mt-1 max-w-lg text-xs leading-5 text-slate-400">
+            FleetOS will show vehicle location, speed, ignition, fuel and load only after an authorized GPS/telematics provider sends real readings to the telemetry backend.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="relative h-72 overflow-hidden border-b border-slate-800 bg-slate-950 sm:h-80">
+            <div className="absolute inset-0 opacity-20" aria-hidden="true">
+              <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <pattern id="telemetry-grid" width="8" height="8" patternUnits="userSpaceOnUse">
+                    <path d="M 8 0 L 0 0 0 8" fill="none" stroke="currentColor" strokeWidth="0.25" className="text-slate-500" />
+                  </pattern>
+                </defs>
+                <rect width="100" height="100" fill="url(#telemetry-grid)" />
+              </svg>
+            </div>
 
-            return (
-              <div
-                key={v.id}
-                style={{ top: pos.top, left: pos.left }}
-                onClick={() => handleMarkerClick(v)}
-                className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer group z-20"
-              >
-                {/* Ping wave for active vehicles */}
-                {v.status === 'active' && (
-                  <span className="absolute -inset-1 rounded-full bg-blue-400 animate-ping opacity-60 pointer-events-none" />
-                )}
+            <div className="absolute left-3 top-3 rounded-md border border-slate-700 bg-slate-900/90 px-2 py-1 text-[10px] text-slate-400">
+              Coordinate plot • not a road map
+            </div>
 
-                <div
-                  className={`relative flex items-center justify-center h-7 w-7 rounded-full text-white shadow-lg transition-transform transform group-hover:scale-125 ${statusColor} ${
-                    isSelected ? 'ring-4 ring-white scale-110' : ''
+            {linkedReadings.map((reading) => {
+              const position = pointLayout.get(reading.vehicleId);
+              if (!position) return null;
+              const selected = activeReading?.vehicleId === reading.vehicleId;
+              const vehicle = vehicles.find((item) => item.id === reading.vehicleId);
+              return (
+                <button
+                  key={reading.vehicleId}
+                  type="button"
+                  onClick={() => handleSelect(reading)}
+                  style={{ top: position.top, left: position.left }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border p-2 shadow-lg transition ${
+                    selected
+                      ? 'border-white bg-emerald-500 text-white ring-4 ring-emerald-500/20'
+                      : 'border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700'
                   }`}
+                  aria-label={`Select ${vehicle?.licensePlate ?? reading.vehicleId}`}
                 >
-                  <Truck className="h-3.5 w-3.5" />
-                </div>
+                  <Truck className="h-4 w-4" />
+                </button>
+              );
+            })}
+          </div>
 
-                {/* Tooltip on hover */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center pointer-events-none z-30">
-                  <div className="px-2.5 py-1.5 bg-slate-900 text-white rounded-lg shadow-xl text-[11px] whitespace-nowrap border border-slate-700">
-                    <p className="font-bold text-blue-300">{v.licensePlate}</p>
-                    <p className="text-slate-300 text-[10px]">
-                      {v.telemetry.speed} mph • {v.telemetry.locationName}
-                    </p>
+          {activeReading && (
+            <div className="space-y-4 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold">{activeVehicle?.licensePlate ?? activeReading.vehicleId}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${freshnessBadge(activeReading)}`}>
+                      {activeReading.freshness}
+                    </span>
+                    <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                      {motionLabel(activeReading)}
+                    </span>
                   </div>
-                  <div className="w-2 h-2 bg-slate-900 rotate-45 -mt-1 border-r border-b border-slate-700" />
+                  <p className="mt-1 text-xs text-slate-400">
+                    {activeReading.provider} • device {activeReading.deviceId} • recorded {new Date(activeReading.recordedAt).toLocaleString()}
+                  </p>
                 </div>
               </div>
-            );
-          })}
-      </div>
 
-      {/* Selected Vehicle Telemetry HUD Drawer (Bottom) */}
-      {activeVehicle && (
-        <div className="relative z-10 p-3 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 text-white flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-400">
-              <Navigation className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-bold text-sm text-white">{activeVehicle.licensePlate}</span>
-                <span className="text-xs text-slate-400 font-medium">
-                  ({activeVehicle.make} {activeVehicle.model})
-                </span>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                    activeVehicle.status === 'active'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : activeVehicle.status === 'maintenance'
-                      ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                  }`}
-                >
-                  {activeVehicle.status}
-                </span>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <Metric icon={Navigation} label="Speed" value={activeReading.speedKph === undefined ? '—' : `${activeReading.speedKph.toFixed(0)} km/h`} />
+                <Metric icon={Activity} label="Ignition" value={activeReading.ignitionOn === undefined ? '—' : activeReading.ignitionOn ? 'ON' : 'OFF'} />
+                <Metric icon={Fuel} label="Fuel" value={activeReading.fuelLevelPercent === undefined ? '—' : `${activeReading.fuelLevelPercent.toFixed(1)}%`} />
+                <Metric icon={Gauge} label="Odometer" value={activeReading.odometerKm === undefined ? '—' : `${activeReading.odometerKm.toLocaleString()} km`} />
+                <Metric icon={Scale} label="Net load" value={activeReading.netLoadKg === undefined ? '—' : `${(activeReading.netLoadKg / 1000).toFixed(2)} t`} />
+                <Metric icon={MapPin} label="Position" value={activeReading.latitude === undefined || activeReading.longitude === undefined ? '—' : `${activeReading.latitude.toFixed(5)}, ${activeReading.longitude.toFixed(5)}`} />
               </div>
-              <p className="text-xs text-slate-400 flex items-center space-x-1 mt-0.5">
-                <MapPin className="h-3 w-3 text-slate-500" />
-                <span>{activeVehicle.telemetry.locationName}</span>
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center space-x-4 text-xs">
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block uppercase">Speed</span>
-              <span className="font-display font-bold text-sm text-teal-400">
-                {activeVehicle.telemetry.speed} mph
-              </span>
+              <div className="grid grid-cols-1 gap-2 text-xs text-slate-400 sm:grid-cols-3">
+                <div>Trip fuel used: <span className="font-medium text-slate-200">{activeReading.fuelUsedLitresTrip === undefined ? '—' : `${activeReading.fuelUsedLitresTrip.toFixed(1)} L`}</span></div>
+                <div>Gross / tare: <span className="font-medium text-slate-200">{activeReading.grossWeightKg === undefined || activeReading.tareWeightKg === undefined ? '—' : `${(activeReading.grossWeightKg / 1000).toFixed(2)} / ${(activeReading.tareWeightKg / 1000).toFixed(2)} t`}</span></div>
+                <div>Evidence: <span className="font-medium text-slate-200">{activeReading.sourceEvidenceId ?? 'provider reading'}</span></div>
+              </div>
             </div>
-
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block uppercase">
-                {activeVehicle.fuelType === 'electric' ? 'Battery SoC' : 'Fuel Level'}
-              </span>
-              <span className="font-display font-bold text-sm text-blue-400">
-                {activeVehicle.telemetry.fuelLevelPercent}%
-              </span>
-            </div>
-
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block uppercase">Engine Temp</span>
-              <span className="font-display font-bold text-sm text-slate-200">
-                {activeVehicle.telemetry.engineTempC}°C
-              </span>
-            </div>
-
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block uppercase">Odometer</span>
-              <span className="font-display font-bold text-sm text-slate-200">
-                {activeVehicle.odometer.toLocaleString()} km
-              </span>
-            </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
     </div>
   );
 };
+
+const Metric: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}> = ({ icon: Icon, label, value }) => (
+  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+      <Icon className="h-3.5 w-3.5" />
+      <span>{label}</span>
+    </div>
+    <div className="mt-1 break-words text-sm font-semibold text-slate-100">{value}</div>
+  </div>
+);
