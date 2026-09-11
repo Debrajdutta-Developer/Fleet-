@@ -1,26 +1,35 @@
 import type { ProviderTelemetryPayload } from '../telemetry.js';
-import type { ProviderAdapter, ProviderContext } from './types.js';
+import type { IntegrationKind, ProviderAdapter, ProviderContext } from './types.js';
+
+export interface NumericFieldMapping {
+  path: string;
+  multiply?: number;
+  add?: number;
+}
+
+export type NumericField = string | NumericFieldMapping;
 
 export interface FieldMap {
   deviceId: string;
   vehicleId: string;
   recordedAt: string;
-  latitude?: string;
-  longitude?: string;
-  speedKph?: string;
+  latitude?: NumericField;
+  longitude?: NumericField;
+  speedKph?: NumericField;
   ignitionOn?: string;
-  engineRpm?: string;
-  odometerKm?: string;
-  fuelLevelPercent?: string;
-  fuelUsedLitresTrip?: string;
-  grossWeightKg?: string;
-  tareWeightKg?: string;
-  netLoadKg?: string;
+  engineRpm?: NumericField;
+  odometerKm?: NumericField;
+  fuelLevelPercent?: NumericField;
+  fuelUsedLitresTrip?: NumericField;
+  grossWeightKg?: NumericField;
+  tareWeightKg?: NumericField;
+  netLoadKg?: NumericField;
   sourceEvidenceId?: string;
 }
 
 export interface GenericJsonProviderConfig {
   providerId: string;
+  kind?: Exclude<IntegrationKind, 'fastag' | 'government_authority'>;
   map: FieldMap;
   arrayPath?: string;
 }
@@ -50,6 +59,14 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function mappedNumber(row: unknown, mapping?: NumericField): number | undefined {
+  if (!mapping) return undefined;
+  const descriptor = typeof mapping === 'string' ? { path: mapping } : mapping;
+  const value = asNumber(getPath(row, descriptor.path));
+  if (value === undefined) return undefined;
+  return value * (descriptor.multiply ?? 1) + (descriptor.add ?? 0);
+}
+
 function asBoolean(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
@@ -63,12 +80,13 @@ function asBoolean(value: unknown): boolean | undefined {
 
 export class GenericJsonTelemetryAdapter implements ProviderAdapter {
   readonly id: string;
-  readonly kind = 'gps' as const;
+  readonly kind: Exclude<IntegrationKind, 'fastag' | 'government_authority'>;
   readonly transports = ['webhook', 'polling'] as const;
   readonly authoritative = false;
 
   constructor(private readonly config: GenericJsonProviderConfig) {
     this.id = `generic:${config.providerId}`;
+    this.kind = config.kind ?? 'gps';
   }
 
   canHandle(providerId: string): boolean {
@@ -92,17 +110,17 @@ export class GenericJsonTelemetryAdapter implements ProviderAdapter {
         deviceId,
         vehicleId,
         recordedAt,
-        latitude: asNumber(getPath(row, this.config.map.latitude)),
-        longitude: asNumber(getPath(row, this.config.map.longitude)),
-        speedKph: asNumber(getPath(row, this.config.map.speedKph)),
+        latitude: mappedNumber(row, this.config.map.latitude),
+        longitude: mappedNumber(row, this.config.map.longitude),
+        speedKph: mappedNumber(row, this.config.map.speedKph),
         ignitionOn: asBoolean(getPath(row, this.config.map.ignitionOn)),
-        engineRpm: asNumber(getPath(row, this.config.map.engineRpm)),
-        odometerKm: asNumber(getPath(row, this.config.map.odometerKm)),
-        fuelLevelPercent: asNumber(getPath(row, this.config.map.fuelLevelPercent)),
-        fuelUsedLitresTrip: asNumber(getPath(row, this.config.map.fuelUsedLitresTrip)),
-        grossWeightKg: asNumber(getPath(row, this.config.map.grossWeightKg)),
-        tareWeightKg: asNumber(getPath(row, this.config.map.tareWeightKg)),
-        netLoadKg: asNumber(getPath(row, this.config.map.netLoadKg)),
+        engineRpm: mappedNumber(row, this.config.map.engineRpm),
+        odometerKm: mappedNumber(row, this.config.map.odometerKm),
+        fuelLevelPercent: mappedNumber(row, this.config.map.fuelLevelPercent),
+        fuelUsedLitresTrip: mappedNumber(row, this.config.map.fuelUsedLitresTrip),
+        grossWeightKg: mappedNumber(row, this.config.map.grossWeightKg),
+        tareWeightKg: mappedNumber(row, this.config.map.tareWeightKg),
+        netLoadKg: mappedNumber(row, this.config.map.netLoadKg),
         sourceEvidenceId: asString(getPath(row, this.config.map.sourceEvidenceId)),
       };
     });
