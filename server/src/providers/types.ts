@@ -22,7 +22,7 @@ export interface ProviderContext {
 export interface ProviderAdapter {
   readonly id: string;
   readonly kind: IntegrationKind;
-  readonly transports: IntegrationTransport[];
+  readonly transports: readonly IntegrationTransport[];
   readonly authoritative: boolean;
   canHandle(providerId: string): boolean;
   toTelemetry(payload: unknown, context: ProviderContext): ProviderTelemetryPayload[];
