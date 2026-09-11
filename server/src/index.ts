@@ -1,10 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { normalizeTelemetry, TelemetryStore, type ProviderTelemetryPayload } from './telemetry.js';
+import { registerConfiguredProviders } from './providers/config.js';
+import { ProviderRegistry } from './providers/registry.js';
+import type { ProviderContext } from './providers/types.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
 const allowedOrigin = process.env.FLEETOS_WEB_ORIGIN?.trim() ?? '';
 const store = new TelemetryStore();
+const providerRegistry = new ProviderRegistry();
+registerConfiguredProviders(providerRegistry);
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
@@ -42,6 +47,19 @@ function bearerToken(req: IncomingMessage): string {
   return header.startsWith('Bearer ') ? header.slice(7) : '';
 }
 
+function providerIdFromPath(pathname: string): string | undefined {
+  const prefix = '/api/providers/';
+  const suffix = '/ingest';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
+  const encoded = pathname.slice(prefix.length, -suffix.length);
+  if (!encoded) return undefined;
+  return decodeURIComponent(encoded);
+}
+
+function requestHeaders(req: IncomingMessage): ProviderContext['headers'] {
+  return Object.fromEntries(Object.entries(req.headers));
+}
+
 const server = createServer(async (req, res) => {
   try {
     const method = req.method ?? 'GET';
@@ -54,7 +72,15 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname === '/health') {
-      return sendJson(req, res, 200, { ok: true, service: 'fleetos-telemetry' });
+      return sendJson(req, res, 200, {
+        ok: true,
+        service: 'fleetos-telemetry',
+        providersConfigured: providerRegistry.list().length,
+      });
+    }
+
+    if (method === 'GET' && url.pathname === '/api/providers') {
+      return sendJson(req, res, 200, { providers: providerRegistry.list() });
     }
 
     if (method === 'POST' && url.pathname === '/api/telemetry/ingest') {
@@ -65,6 +91,37 @@ const server = createServer(async (req, res) => {
       const reading = normalizeTelemetry(raw as ProviderTelemetryPayload);
       store.upsert(reading);
       return sendJson(req, res, 202, { accepted: true, reading });
+    }
+
+    const providerId = method === 'POST' ? providerIdFromPath(url.pathname) : undefined;
+    if (providerId) {
+      if (!ingestToken) return sendJson(req, res, 503, { error: 'ingest token is not configured' });
+      if (bearerToken(req) !== ingestToken) return sendJson(req, res, 401, { error: 'unauthorized' });
+
+      const adapter = providerRegistry.resolve(providerId);
+      if (!adapter) {
+        return sendJson(req, res, 404, {
+          error: 'provider adapter is not configured',
+          providerId,
+        });
+      }
+
+      const raw = await readJson(req);
+      const context: ProviderContext = {
+        providerId,
+        kind: adapter.kind,
+        receivedAt: new Date().toISOString(),
+        headers: requestHeaders(req),
+      };
+      const normalized = adapter.toTelemetry(raw, context).map((reading) => normalizeTelemetry(reading));
+      normalized.forEach((reading) => store.upsert(reading));
+
+      return sendJson(req, res, 202, {
+        accepted: true,
+        providerId,
+        count: normalized.length,
+        readings: normalized,
+      });
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
