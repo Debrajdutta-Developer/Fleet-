@@ -1,112 +1,97 @@
 # FleetOS ERP
 
-FleetOS is an **India-first transport-company operating system** for fleets of any practical size. The first deep vertical is **coal transport**, while the core model is intended to support general freight and contract logistics too.
+FleetOS ERP is an India-first transport and logistics operating system. Coal transport is the first deep vertical, but the architecture is intended for transport companies of any size using owned, hired, attached or third-party vehicles.
 
-A FleetOS company can operate owned trucks, hire outside trucks, attach third-party vehicles, transport its own material, or work under another logistics company. The target is not a fixed 10/50/100 vehicle product ceiling; the production architecture must scale through tenant-scoped storage, indexed queries and pagination.
+The repository contains:
+
+- **Web ERP dashboard:** React + TypeScript + Vite for fleet operations, trips, drivers, finance, maintenance, compliance, billing and audit workflows.
+- **Telemetry backend:** Node.js + TypeScript ingestion service for real GPS/telematics/weighment/fuel data. It never labels simulated data as live.
+- **Flutter application:** Flutter + Riverpod + GoRouter + Firebase-oriented mobile/client architecture.
+
+The project is not yet production-ready. Browser-local demo state is still present in parts of the web application and production authentication, tenant-scoped persistence, provider credentials, durable telemetry storage and server-enforced authorization still need completion.
 
 ## Product direction
 
-FleetOS is being completed around these first-class subsystems:
+FleetOS is designed for Indian transport operators that may run 10, 100, 200 or more vehicles without an artificial fleet-size limit. A company can use its own vehicles, hired vehicles or a mixed fleet, transport its own goods, work for logistics contractors, or specialize in bulk/coal transport.
 
-- **Operations:** vehicles, owned/hired/attached fleet, drivers, dispatch, trips and proof of delivery.
-- **Coal transport:** mine/loading point, weighment, gross/tare/net weight, rate per tonne, challan/royalty references, shortage, detention and settlement.
-- **Driver portal:** assigned vehicle/trip, authorized documents, advances, toll/FASTag information, expense and receipt submission.
-- **Finance:** freight revenue, invoices, receipts, outstanding, expenses, hired-vehicle payables, payroll and trip/vehicle/client profitability.
-- **Compliance:** RC, insurance, PUC, fitness, permits, road tax, licence, FASTag and challan tracking with 30/15/7/1-day expiry alerts.
-- **Maintenance:** preventive service, breakdowns, parts, tyres/battery, labour, workshop cost, downtime and lifetime vehicle cost.
-- **External integrations:** only official APIs, contractually authorized partners, official-portal deep links or manual verified proof. FleetOS must never fake a government/payment integration or hard-code a transaction as successful.
+Core product areas:
 
-The detailed source of truth is [`docs/PRODUCT_VISION_INDIA.md`](docs/PRODUCT_VISION_INDIA.md).
+- owned / hired / attached / third-party vehicle registry
+- driver assignment and separate driver-facing workflows
+- coal loading, weighment, gross/tare/net load and rate-per-tonne economics
+- trip dispatch, route progress, ETA and proof of delivery
+- fuel, toll, FASTag and trip expenses
+- maintenance and lifetime vehicle cost
+- finance, invoices, receipts, outstanding payments and profitability
+- RC, insurance, PUC, fitness, permits, road tax and challan expiry alerts
+- government/provider integrations only through official or contractually authorized APIs, otherwise verified official-portal/manual workflows
 
-## Current application surfaces
+## Realtime telemetry
 
-- **Web ERP dashboard:** React 18 + TypeScript + Vite + Tailwind CSS. It currently includes dashboard, vehicles, drivers, trips, HR, maintenance/fuel, compliance, billing and audit-log views.
-- **Flutter client:** Flutter + Riverpod + GoRouter + Firebase-oriented feature architecture.
+`server/` contains the first real telemetry ingestion service. It accepts authorized provider/device readings and normalizes them into one FleetOS vehicle state.
 
-The current web build is still a functional prototype that persists state in browser `localStorage` and starts from seeded data. It must not be described as production-ready until authenticated server persistence, tenant authorization, tests and real integration contracts are complete.
+Supported normalized fields include:
 
-## India transport domain foundation
+- latitude / longitude
+- speed
+- ignition state
+- moving / idling / stopped / offline state
+- odometer
+- engine RPM when provided
+- fuel level and trip fuel used when provided
+- gross weight, tare weight and net load
+- source/provider/device identity
+- freshness classification (`live`, `recent`, `stale`, `offline`)
 
-`src/domain/indiaTransport.ts` introduces the migration-safe domain layer for:
+Different data normally comes from different sources:
 
-- vehicle ownership: owned / hired / attached / third-party;
-- coal load and weighment records;
-- trip expense and profitability calculation;
-- compliance expiry alert calculation;
-- explicit government/provider integration modes;
-- safe rules that require authoritative confirmation before external actions are marked successful.
+- GPS/AIS-140 provider: location, speed, route and stop state
+- OBD/CAN/OEM telemetry: supported engine/odometer/fuel fields
+- fuel sensor: actual tank level/refill/drain events
+- weighbridge/load sensor: coal load weights
+- authorized FASTag/provider feed: toll transactions
 
-The old US-oriented demo fields/data remain temporarily for UI compatibility and will be migrated instead of breaking the existing product in one unsafe rewrite.
+FleetOS must not fabricate missing sensor values. A field is shown as live only when it came from an authoritative connected source and is fresh enough.
+
+### Telemetry server API
+
+Run locally:
+
+```bash
+cd server
+npm install
+FLEETOS_INGEST_TOKEN='replace-me' npm run build
+FLEETOS_INGEST_TOKEN='replace-me' npm start
+```
+
+Endpoints:
+
+- `GET /health`
+- `POST /api/telemetry/ingest` with `Authorization: Bearer <token>`
+- `GET /api/telemetry/live`
+- `GET /api/telemetry/live/:vehicleId`
+
+Provider credentials belong on the backend only. The browser must never contain GPS-provider or government-integration secrets.
 
 ## Web application
-
-### Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-### Quality checks
+Quality checks:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-GitHub Actions runs TypeScript validation and the production Vite build for relevant web changes.
-
-### Main web modules
-
-```text
-src/
-├── App.tsx
-├── components/
-├── context/FleetContext.tsx
-├── data/
-├── domain/
-│   └── indiaTransport.ts
-├── views/
-│   ├── DashboardView.tsx
-│   ├── VehiclesView.tsx
-│   ├── DriversView.tsx
-│   ├── TripsView.tsx
-│   ├── HRView.tsx
-│   ├── MaintenanceFuelView.tsx
-│   ├── ComplianceVaultView.tsx
-│   ├── BillingView.tsx
-│   └── AuditLogsView.tsx
-└── types.ts
-```
+GitHub Actions validates both the web application and telemetry backend build.
 
 ## Flutter application
 
-The Flutter side uses a feature-first structure under `lib/` with shared core services and business modules.
-
-```text
-lib/
-├── app.dart
-├── main.dart
-├── core/
-│   ├── errors/
-│   ├── router/
-│   ├── services/
-│   ├── theme/
-│   └── widgets/
-└── features/
-    ├── auth/
-    ├── company_setup/
-    └── dashboard/
-```
-
-### Flutter setup
-
-Add Firebase platform configuration only for environments where the Firebase-backed Flutter app is being used:
-
-- Android: `android/app/google-services.json`
-- iOS: `ios/Runner/GoogleService-Info.plist`
-
-Then run:
+For environments using the Flutter/Firebase client:
 
 ```bash
 flutter pub get
@@ -114,17 +99,18 @@ flutter pub run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
-## Completion order
+## Current completion order
 
-1. Keep TypeScript/build CI green while migrating the domain.
-2. Replace US demo assumptions with India transport + coal fixtures and business rules.
-3. Add authenticated backend tenancy and server-side role enforcement.
-4. Build the dedicated driver workflow and finance/accounting backend.
-5. Move compliance, dispatch and accounting rules out of browser-only state.
-6. Add automated tests for coal dispatch, weighment, driver assignment, compliance, billing, expenses and hired-vehicle settlement.
-7. Add external services only when an official/authorized integration contract exists.
-8. Deploy only after environment/security/backup/runbook documentation is complete.
+1. Keep web and telemetry-server TypeScript builds green.
+2. Replace US-oriented demo fixtures with India/coal fixtures and INR-first business rules.
+3. Connect the first authorized GPS/AIS-140 provider to the telemetry adapter.
+4. Add durable database/time-series storage instead of in-memory telemetry snapshots.
+5. Add authenticated tenant-scoped backend and server-side RBAC.
+6. Build dedicated driver and finance workflows.
+7. Add fuel/weighbridge/FASTag provider adapters where authorized access exists.
+8. Move compliance, dispatch and accounting rules out of browser-only state.
+9. Add automated workflow/integration tests and production deployment configuration.
 
 ## Repository policy
 
-`Fleet-` is the canonical active FleetOS repository. Do not create another FleetOS copy for incremental updates. Changes should continue here through branches/PRs so the product has one history and one source of truth.
+`Fleet-` is the canonical active FleetOS repository. Do not create another FleetOS copy for incremental work; changes should continue here through branches and PRs.
