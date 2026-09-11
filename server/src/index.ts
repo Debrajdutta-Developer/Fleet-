@@ -3,9 +3,22 @@ import { normalizeTelemetry, TelemetryStore, type ProviderTelemetryPayload } fro
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
+const allowedOrigin = process.env.FLEETOS_WEB_ORIGIN?.trim() ?? '';
 const store = new TelemetryStore();
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function applyCors(req: IncomingMessage, res: ServerResponse): void {
+  const origin = req.headers.origin;
+  if (!origin || !allowedOrigin || origin !== allowedOrigin) return;
+
+  res.setHeader('access-control-allow-origin', origin);
+  res.setHeader('vary', 'Origin');
+  res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept');
+  res.setHeader('access-control-max-age', '600');
+}
+
+function sendJson(req: IncomingMessage, res: ServerResponse, status: number, body: unknown): void {
+  applyCors(req, res);
   res.statusCode = status;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(body));
@@ -34,36 +47,42 @@ const server = createServer(async (req, res) => {
     const method = req.method ?? 'GET';
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
+    if (method === 'OPTIONS') {
+      applyCors(req, res);
+      res.statusCode = 204;
+      return res.end();
+    }
+
     if (method === 'GET' && url.pathname === '/health') {
-      return sendJson(res, 200, { ok: true, service: 'fleetos-telemetry' });
+      return sendJson(req, res, 200, { ok: true, service: 'fleetos-telemetry' });
     }
 
     if (method === 'POST' && url.pathname === '/api/telemetry/ingest') {
-      if (!ingestToken) return sendJson(res, 503, { error: 'ingest token is not configured' });
-      if (bearerToken(req) !== ingestToken) return sendJson(res, 401, { error: 'unauthorized' });
+      if (!ingestToken) return sendJson(req, res, 503, { error: 'ingest token is not configured' });
+      if (bearerToken(req) !== ingestToken) return sendJson(req, res, 401, { error: 'unauthorized' });
 
       const raw = await readJson(req);
       const reading = normalizeTelemetry(raw as ProviderTelemetryPayload);
       store.upsert(reading);
-      return sendJson(res, 202, { accepted: true, reading });
+      return sendJson(req, res, 202, { accepted: true, reading });
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
-      return sendJson(res, 200, { vehicles: store.list(), generatedAt: new Date().toISOString() });
+      return sendJson(req, res, 200, { vehicles: store.list(), generatedAt: new Date().toISOString() });
     }
 
     if (method === 'GET' && url.pathname.startsWith('/api/telemetry/live/')) {
       const vehicleId = decodeURIComponent(url.pathname.slice('/api/telemetry/live/'.length));
       const reading = store.get(vehicleId);
       return reading
-        ? sendJson(res, 200, reading)
-        : sendJson(res, 404, { error: 'no telemetry available for vehicle' });
+        ? sendJson(req, res, 200, reading)
+        : sendJson(req, res, 404, { error: 'no telemetry available for vehicle' });
     }
 
-    return sendJson(res, 404, { error: 'not found' });
+    return sendJson(req, res, 404, { error: 'not found' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown error';
-    return sendJson(res, 400, { error: message });
+    return sendJson(req, res, 400, { error: message });
   }
 });
 
