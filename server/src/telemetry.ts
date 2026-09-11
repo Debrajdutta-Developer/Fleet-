@@ -48,6 +48,9 @@ const asFinite = (value: unknown): number | undefined =>
 const clamp = (value: number | undefined, min: number, max: number): number | undefined =>
   value === undefined ? undefined : Math.min(max, Math.max(min, value));
 
+const nonNegative = (value: number | undefined): number | undefined =>
+  value === undefined ? undefined : Math.max(0, value);
+
 export function freshnessFrom(recordedAt: string, now = new Date()): TelemetryFreshness {
   const timestamp = Date.parse(recordedAt);
   if (!Number.isFinite(timestamp)) return 'offline';
@@ -58,24 +61,30 @@ export function freshnessFrom(recordedAt: string, now = new Date()): TelemetryFr
   return 'offline';
 }
 
-export function motionFrom(input: Pick<ProviderTelemetryPayload, 'speedKph' | 'ignitionOn'>, freshness: TelemetryFreshness): VehicleMotionState {
+export function motionFrom(
+  input: Pick<ProviderTelemetryPayload, 'speedKph' | 'ignitionOn'>,
+  freshness: TelemetryFreshness,
+): VehicleMotionState {
   if (freshness === 'offline') return 'offline';
-  const speed = asFinite(input.speedKph) ?? 0;
-  if (speed >= 3) return 'moving';
-  if (input.ignitionOn) return 'idling';
+  const speed = asFinite(input.speedKph);
+  if (speed !== undefined && speed >= 3) return 'moving';
+  if (input.ignitionOn === true) return 'idling';
   return 'stopped';
 }
 
 export function normalizeTelemetry(payload: ProviderTelemetryPayload, receivedAt = new Date()): NormalizedTelemetry {
-  if (!payload.provider.trim()) throw new Error('provider is required');
-  if (!payload.deviceId.trim()) throw new Error('deviceId is required');
-  if (!payload.vehicleId.trim()) throw new Error('vehicleId is required');
-  if (!Number.isFinite(Date.parse(payload.recordedAt))) throw new Error('recordedAt must be a valid ISO timestamp');
+  if (!payload || typeof payload !== 'object') throw new Error('telemetry payload is required');
+  if (typeof payload.provider !== 'string' || !payload.provider.trim()) throw new Error('provider is required');
+  if (typeof payload.deviceId !== 'string' || !payload.deviceId.trim()) throw new Error('deviceId is required');
+  if (typeof payload.vehicleId !== 'string' || !payload.vehicleId.trim()) throw new Error('vehicleId is required');
+  if (typeof payload.recordedAt !== 'string' || !Number.isFinite(Date.parse(payload.recordedAt))) {
+    throw new Error('recordedAt must be a valid ISO timestamp');
+  }
 
   const freshness = freshnessFrom(payload.recordedAt, receivedAt);
-  const grossWeightKg = asFinite(payload.grossWeightKg);
-  const tareWeightKg = asFinite(payload.tareWeightKg);
-  const explicitNetLoadKg = asFinite(payload.netLoadKg);
+  const grossWeightKg = nonNegative(asFinite(payload.grossWeightKg));
+  const tareWeightKg = nonNegative(asFinite(payload.tareWeightKg));
+  const explicitNetLoadKg = nonNegative(asFinite(payload.netLoadKg));
   const derivedNet = grossWeightKg !== undefined && tareWeightKg !== undefined
     ? Math.max(0, grossWeightKg - tareWeightKg)
     : undefined;
@@ -88,18 +97,27 @@ export function normalizeTelemetry(payload: ProviderTelemetryPayload, receivedAt
     receivedAt: receivedAt.toISOString(),
     latitude: clamp(asFinite(payload.latitude), -90, 90),
     longitude: clamp(asFinite(payload.longitude), -180, 180),
-    speedKph: Math.max(0, asFinite(payload.speedKph) ?? 0),
-    ignitionOn: payload.ignitionOn,
-    engineRpm: Math.max(0, asFinite(payload.engineRpm) ?? 0),
-    odometerKm: Math.max(0, asFinite(payload.odometerKm) ?? 0),
+    speedKph: nonNegative(asFinite(payload.speedKph)),
+    ignitionOn: typeof payload.ignitionOn === 'boolean' ? payload.ignitionOn : undefined,
+    engineRpm: nonNegative(asFinite(payload.engineRpm)),
+    odometerKm: nonNegative(asFinite(payload.odometerKm)),
     fuelLevelPercent: clamp(asFinite(payload.fuelLevelPercent), 0, 100),
-    fuelUsedLitresTrip: Math.max(0, asFinite(payload.fuelUsedLitresTrip) ?? 0),
+    fuelUsedLitresTrip: nonNegative(asFinite(payload.fuelUsedLitresTrip)),
     grossWeightKg,
     tareWeightKg,
     netLoadKg: explicitNetLoadKg ?? derivedNet,
     motionState: motionFrom(payload, freshness),
     freshness,
-    sourceEvidenceId: payload.sourceEvidenceId,
+    sourceEvidenceId: typeof payload.sourceEvidenceId === 'string' ? payload.sourceEvidenceId : undefined,
+  };
+}
+
+function refreshState(reading: NormalizedTelemetry, now = new Date()): NormalizedTelemetry {
+  const freshness = freshnessFrom(reading.recordedAt, now);
+  return {
+    ...reading,
+    freshness,
+    motionState: motionFrom(reading, freshness),
   };
 }
 
@@ -113,11 +131,14 @@ export class TelemetryStore {
     }
   }
 
-  get(vehicleId: string): NormalizedTelemetry | undefined {
-    return this.latestByVehicle.get(vehicleId);
+  get(vehicleId: string, now = new Date()): NormalizedTelemetry | undefined {
+    const reading = this.latestByVehicle.get(vehicleId);
+    return reading ? refreshState(reading, now) : undefined;
   }
 
-  list(): NormalizedTelemetry[] {
-    return [...this.latestByVehicle.values()].sort((a, b) => a.vehicleId.localeCompare(b.vehicleId));
+  list(now = new Date()): NormalizedTelemetry[] {
+    return [...this.latestByVehicle.values()]
+      .map((reading) => refreshState(reading, now))
+      .sort((a, b) => a.vehicleId.localeCompare(b.vehicleId));
   }
 }
