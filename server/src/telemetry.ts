@@ -2,6 +2,7 @@ export type VehicleMotionState = 'moving' | 'idling' | 'stopped' | 'offline';
 export type TelemetryFreshness = 'live' | 'recent' | 'stale' | 'offline';
 
 export interface ProviderTelemetryPayload {
+  companyId: string;
   provider: string;
   deviceId: string;
   vehicleId: string;
@@ -21,6 +22,7 @@ export interface ProviderTelemetryPayload {
 }
 
 export interface NormalizedTelemetry {
+  companyId: string;
   provider: string;
   deviceId: string;
   vehicleId: string;
@@ -44,6 +46,12 @@ export interface NormalizedTelemetry {
 
 const asFinite = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+const bounded = (value: number | undefined, min: number, max: number, field: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (value < min || value > max) throw new Error(`${field} is outside valid range`);
+  return value;
+};
 
 const clamp = (value: number | undefined, min: number, max: number): number | undefined =>
   value === undefined ? undefined : Math.min(max, Math.max(min, value));
@@ -74,6 +82,7 @@ export function motionFrom(
 
 export function normalizeTelemetry(payload: ProviderTelemetryPayload, receivedAt = new Date()): NormalizedTelemetry {
   if (!payload || typeof payload !== 'object') throw new Error('telemetry payload is required');
+  if (typeof payload.companyId !== 'string' || !payload.companyId.trim()) throw new Error('companyId is required');
   if (typeof payload.provider !== 'string' || !payload.provider.trim()) throw new Error('provider is required');
   if (typeof payload.deviceId !== 'string' || !payload.deviceId.trim()) throw new Error('deviceId is required');
   if (typeof payload.vehicleId !== 'string' || !payload.vehicleId.trim()) throw new Error('vehicleId is required');
@@ -90,13 +99,14 @@ export function normalizeTelemetry(payload: ProviderTelemetryPayload, receivedAt
     : undefined;
 
   return {
+    companyId: payload.companyId.trim(),
     provider: payload.provider.trim(),
     deviceId: payload.deviceId.trim(),
     vehicleId: payload.vehicleId.trim(),
     recordedAt: new Date(payload.recordedAt).toISOString(),
     receivedAt: receivedAt.toISOString(),
-    latitude: clamp(asFinite(payload.latitude), -90, 90),
-    longitude: clamp(asFinite(payload.longitude), -180, 180),
+    latitude: bounded(asFinite(payload.latitude), -90, 90, 'latitude'),
+    longitude: bounded(asFinite(payload.longitude), -180, 180, 'longitude'),
     speedKph: nonNegative(asFinite(payload.speedKph)),
     ignitionOn: typeof payload.ignitionOn === 'boolean' ? payload.ignitionOn : undefined,
     engineRpm: nonNegative(asFinite(payload.engineRpm)),
@@ -121,23 +131,27 @@ function refreshState(reading: NormalizedTelemetry, now = new Date()): Normalize
   };
 }
 
+const keyFor = (companyId: string, vehicleId: string) => `${companyId}::${vehicleId}`;
+
 export class TelemetryStore {
-  private readonly latestByVehicle = new Map<string, NormalizedTelemetry>();
+  private readonly latestByTenantVehicle = new Map<string, NormalizedTelemetry>();
 
   upsert(reading: NormalizedTelemetry): void {
-    const current = this.latestByVehicle.get(reading.vehicleId);
+    const key = keyFor(reading.companyId, reading.vehicleId);
+    const current = this.latestByTenantVehicle.get(key);
     if (!current || Date.parse(reading.recordedAt) >= Date.parse(current.recordedAt)) {
-      this.latestByVehicle.set(reading.vehicleId, reading);
+      this.latestByTenantVehicle.set(key, reading);
     }
   }
 
-  get(vehicleId: string, now = new Date()): NormalizedTelemetry | undefined {
-    const reading = this.latestByVehicle.get(vehicleId);
+  get(companyId: string, vehicleId: string, now = new Date()): NormalizedTelemetry | undefined {
+    const reading = this.latestByTenantVehicle.get(keyFor(companyId, vehicleId));
     return reading ? refreshState(reading, now) : undefined;
   }
 
-  list(now = new Date()): NormalizedTelemetry[] {
-    return [...this.latestByVehicle.values()]
+  list(companyId: string, now = new Date()): NormalizedTelemetry[] {
+    return [...this.latestByTenantVehicle.values()]
+      .filter((reading) => reading.companyId === companyId)
       .map((reading) => refreshState(reading, now))
       .sort((a, b) => a.vehicleId.localeCompare(b.vehicleId));
   }
