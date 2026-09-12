@@ -1,0 +1,58 @@
+name: One-time HR null safety fixer
+
+on:
+  push:
+    branches: [complete/fleet-web-foundation]
+    paths:
+      - '.github/workflows/hr_null_safety_fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    if: github.event.head_commit.message == 'chore: run one-time HR null safety fixer'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: complete/fleet-web-foundation
+
+      - name: Apply strict null-safety fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          replacements = {
+              'src/components/hr/AttendanceShiftModals.tsx': [
+                  ("{isEditing ? `Edit Shift: ${shift.name}` : 'Create Shift Schedule'}", "{isEditing ? `Edit Shift: ${shift?.name ?? ''}` : 'Create Shift Schedule'}"),
+              ],
+              'src/components/hr/DepartmentDesignationModals.tsx': [
+                  ("{isEditing ? `Edit Department: ${department.name}` : 'Create Department'}", "{isEditing ? `Edit Department: ${department?.name ?? ''}` : 'Create Department'}"),
+                  ("{isEditing ? `Edit Designation: ${designation.title}` : 'Create Designation'}", "{isEditing ? `Edit Designation: ${designation?.title ?? ''}` : 'Create Designation'}"),
+              ],
+              'src/components/hr/EmployeeDetailDrawer.tsx': [
+                  ("<span>Joined {new Date(employee.joiningDate).toLocaleDateString()}</span>", "<span>Joined {employee.joiningDate || employee.joinDate ? new Date(employee.joiningDate ?? employee.joinDate!).toLocaleDateString() : '—'}</span>"),
+              ],
+              'src/components/hr/EmployeeModal.tsx': [
+                  ("{isEditing ? `Edit Employee: ${employee.fullName}` : 'Onboard New Employee'}", "{isEditing ? `Edit Employee: ${employee?.fullName ?? ''}` : 'Onboard New Employee'}"),
+              ],
+          }
+
+          for filename, edits in replacements.items():
+              path = Path(filename)
+              text = path.read_text()
+              for old, new in edits:
+                  if old not in text:
+                      raise SystemExit(f'Expected text not found in {filename}: {old}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text)
+
+      - name: Commit fixes
+        run: |
+          git config user.name "FleetOS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/components/hr/AttendanceShiftModals.tsx src/components/hr/DepartmentDesignationModals.tsx src/components/hr/EmployeeDetailDrawer.tsx src/components/hr/EmployeeModal.tsx
+          git commit -m "fix: enforce HR modal null safety"
+          git push origin HEAD:complete/fleet-web-foundation
