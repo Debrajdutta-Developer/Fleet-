@@ -47,11 +47,11 @@ export interface Vehicle {
   model: string;
   year: number;
   status: VehicleStatus;
-  statusTag?: string; // e.g., 'Compliance Lock', 'Accident Lockout', 'PUC Expired'
+  statusTag?: string;
   fuelType: FuelType;
-  odometer: number; // in km
+  odometer: number;
   maxPayloadKg: number;
-  gvwrLbs: number; // Gross Vehicle Weight Rating
+  gvwrLbs: number;
   cdlRequired: 'Class A' | 'Class B' | 'Standard';
   lastServiceDate: string;
   lastServiceOdometer: number;
@@ -67,7 +67,7 @@ export type DriverStatus = 'available' | 'on_duty' | 'suspended' | 'off_duty';
 
 export interface Driver {
   id: string;
-  employeeId?: string; // Link to HR Employee master record
+  employeeId?: string;
   fullName: string;
   phone: string;
   email: string;
@@ -75,7 +75,7 @@ export interface Driver {
   cdlClass: 'Class A' | 'Class B' | 'Standard';
   licenseExpiry: string;
   status: DriverStatus;
-  safetyScore: number; // 0 - 100
+  safetyScore: number;
   assignedVehicleId?: string;
   totalTripsCompleted: number;
   hoursDrivenThisWeek: number;
@@ -198,7 +198,7 @@ export interface Invoice {
 }
 
 // Enterprise HR & Employee Management Models
-
+// Some compatibility aliases below preserve older UI forms while the HR module is migrated.
 export interface Department {
   id: string;
   companyId: string;
@@ -206,6 +206,8 @@ export interface Department {
   code: string;
   description: string;
   headOfDepartmentId?: string;
+  headOfDepartment?: string;
+  location?: string;
   budget?: number;
   createdAt: string;
   updatedAt: string;
@@ -218,7 +220,8 @@ export interface Designation {
   title: string;
   code: string;
   departmentId: string;
-  level: 'entry' | 'mid' | 'senior' | 'lead' | 'executive';
+  description?: string;
+  level: 'entry' | 'mid' | 'senior' | 'lead' | 'executive' | number;
   minSalary: number;
   maxSalary: number;
   createdAt: string;
@@ -231,12 +234,13 @@ export interface Shift {
   companyId: string;
   name: string;
   code: string;
-  startTime: string; // HH:mm
-  endTime: string; // HH:mm
+  startTime: string;
+  endTime: string;
   breakDurationMins: number;
   gracePeriodMins: number;
   workingDays: string[];
   isActive: boolean;
+  isNightShift?: boolean;
 }
 
 export interface SalaryStructure {
@@ -248,18 +252,18 @@ export interface SalaryStructure {
   performanceBonus: number;
   taxDeductionPercent: number;
   providentFundDeduction: number;
-  netMonthlySalary: number;
+  netMonthlySalary?: number;
 }
 
 export type EmploymentType = 'full_time' | 'contract' | 'part_time' | 'probation';
-export type EmployeeStatus = 'active' | 'on_leave' | 'suspended' | 'terminated';
+export type EmployeeStatus = 'active' | 'on_leave' | 'suspended' | 'terminated' | 'probation';
 
 export interface Employee {
   id: string;
   companyId: string;
   employeeCode: string;
-  firstName: string;
-  lastName: string;
+  firstName?: string;
+  lastName?: string;
   fullName: string;
   email: string;
   phone: string;
@@ -269,8 +273,11 @@ export interface Employee {
   role: UserRole;
   status: EmployeeStatus;
   employmentType: EmploymentType;
-  joinDate: string;
+  joinDate?: string;
+  joiningDate?: string;
   birthDate?: string;
+  dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
   shiftId: string;
   isDriver: boolean;
   linkedDriverId?: string;
@@ -280,9 +287,16 @@ export interface Employee {
     accountNumber: string;
     routingOrIfsc: string;
   };
+  bankAccount?: {
+    bankName: string;
+    accountNumber: string;
+    routingNumber: string;
+    accountHolderName?: string;
+  };
   emergencyContact?: {
     name: string;
-    relation: string;
+    relation?: string;
+    relationship?: string;
     phone: string;
   };
   createdAt: string;
@@ -296,9 +310,9 @@ export interface AttendanceRecord {
   id: string;
   companyId: string;
   employeeId: string;
-  date: string; // YYYY-MM-DD
-  checkInTime: string; // HH:mm
-  checkOutTime?: string; // HH:mm
+  date: string;
+  checkInTime: string;
+  checkOutTime?: string;
   status: AttendanceStatus;
   shiftId?: string;
   hoursWorked: number;
@@ -334,7 +348,7 @@ export type PaymentMethod = 'bank_transfer' | 'direct_deposit' | 'cheque';
 export interface PayrollRecord {
   id: string;
   companyId: string;
-  payrollMonth: string; // YYYY-MM
+  payrollMonth: string;
   employeeId: string;
   baseSalary: number;
   totalAllowances: number;
