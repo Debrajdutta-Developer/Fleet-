@@ -16,7 +16,9 @@ The owner dashboard must derive operational KPIs from recorded FleetOS data rath
 ## Product rules
 
 1. Never label local simulation or seed movement as live telemetry.
-2. Missing provider/sensor values stay missing; do not replace them with zero unless zero was actually reported.
-3. Charts must use the active tenant/company data available to the UI.
-4. Currency formatting must respect the company's configured currency; India-first deployments should normally use INR.
-5. Owner-facing risk counts should be explainable from the underlying maintenance, compliance or invoice records.
+2. Demo telemetry is opt-in only through `VITE_ENABLE_DEMO_TELEMETRY=true`; production defaults to provider-authoritative data.
+3. Missing provider/sensor values stay missing; do not replace them with zero unless zero was actually reported.
+4. Charts must use the active tenant/company data available to the UI.
+5. Currency formatting must respect the company's configured currency; India-first deployments should normally use INR.
+6. Owner-facing risk counts should be explainable from the underlying maintenance, compliance or invoice records.
+7. A vehicle in registration state must not be activated until the compliance gate has at least one verified compliance document.
