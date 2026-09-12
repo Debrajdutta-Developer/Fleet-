@@ -143,7 +143,7 @@ export const EmployeeModal: React.FC<EmployeeModalProps> = ({ employee, onClose 
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                {isEditing ? `Edit Employee: ${employee.fullName}` : 'Onboard New Employee'}
+                {isEditing ? `Edit Employee: ${employee?.fullName ?? ''}` : 'Onboard New Employee'}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Company: <span className="font-semibold text-slate-700 dark:text-slate-300">{currentCompany.name}</span>
