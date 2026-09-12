@@ -11,10 +11,40 @@ export interface TelemetryHistoryQuery {
   limit?: number;
 }
 
+export interface NormalizedTelemetryHistoryQuery extends TelemetryHistoryQuery {
+  limit: number;
+}
+
 export interface TelemetryRepository {
   readonly kind: 'memory' | 'jsonl' | 'postgres';
   append(reading: NormalizedTelemetry): Promise<void>;
   history(query: TelemetryHistoryQuery): Promise<NormalizedTelemetry[]>;
+}
+
+function validTimestamp(value: string | undefined, field: string): string | undefined {
+  if (!value) return undefined;
+  if (!Number.isFinite(Date.parse(value))) throw new Error(`${field} must be a valid timestamp`);
+  return new Date(value).toISOString();
+}
+
+export function normalizeTelemetryHistoryQuery(query: TelemetryHistoryQuery): NormalizedTelemetryHistoryQuery {
+  const companyId = query.companyId?.trim();
+  if (!companyId) throw new Error('companyId is required');
+
+  const rawLimit = query.limit ?? 500;
+  if (!Number.isFinite(rawLimit)) throw new Error('limit must be a finite number');
+  const limit = Math.max(1, Math.min(Math.trunc(rawLimit), 5000));
+  const from = validTimestamp(query.from?.trim(), 'from');
+  const to = validTimestamp(query.to?.trim(), 'to');
+  if (from && to && Date.parse(from) > Date.parse(to)) throw new Error('from must not be after to');
+
+  return {
+    companyId,
+    vehicleId: query.vehicleId?.trim() || undefined,
+    from,
+    to,
+    limit,
+  };
 }
 
 export class InMemoryTelemetryRepository implements TelemetryRepository {
@@ -26,7 +56,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async history(query: TelemetryHistoryQuery): Promise<NormalizedTelemetry[]> {
-    return filterHistory(this.rows, query);
+    return filterHistory(this.rows, normalizeTelemetryHistoryQuery(query));
   }
 }
 
@@ -41,6 +71,7 @@ export class JsonlTelemetryRepository implements TelemetryRepository {
   }
 
   async history(query: TelemetryHistoryQuery): Promise<NormalizedTelemetry[]> {
+    const normalized = normalizeTelemetryHistoryQuery(query);
     let text = '';
     try {
       text = await readFile(this.filePath, 'utf8');
@@ -58,7 +89,7 @@ export class JsonlTelemetryRepository implements TelemetryRepository {
         // Skip malformed historical lines instead of crashing live telemetry reads.
       }
     }
-    return filterHistory(rows, query);
+    return filterHistory(rows, normalized);
   }
 }
 
@@ -106,25 +137,25 @@ export class PostgresTelemetryRepository implements TelemetryRepository {
   }
 
   async history(query: TelemetryHistoryQuery): Promise<NormalizedTelemetry[]> {
+    const normalized = normalizeTelemetryHistoryQuery(query);
     await this.ensureSchema();
-    const values: unknown[] = [query.companyId];
+    const values: unknown[] = [normalized.companyId];
     const clauses = ['company_id = $1'];
 
-    if (query.vehicleId) {
-      values.push(query.vehicleId);
+    if (normalized.vehicleId) {
+      values.push(normalized.vehicleId);
       clauses.push(`vehicle_id = $${values.length}`);
     }
-    if (query.from) {
-      values.push(query.from);
+    if (normalized.from) {
+      values.push(normalized.from);
       clauses.push(`recorded_at >= $${values.length}::timestamptz`);
     }
-    if (query.to) {
-      values.push(query.to);
+    if (normalized.to) {
+      values.push(normalized.to);
       clauses.push(`recorded_at <= $${values.length}::timestamptz`);
     }
 
-    const limit = Math.max(1, Math.min(query.limit ?? 500, 5000));
-    values.push(limit);
+    values.push(normalized.limit);
     const result = await this.pool.query<{ payload: NormalizedTelemetry }>(
       `SELECT payload
        FROM fleetos_telemetry_history
@@ -137,10 +168,9 @@ export class PostgresTelemetryRepository implements TelemetryRepository {
   }
 }
 
-function filterHistory(rows: NormalizedTelemetry[], query: TelemetryHistoryQuery): NormalizedTelemetry[] {
+function filterHistory(rows: NormalizedTelemetry[], query: NormalizedTelemetryHistoryQuery): NormalizedTelemetry[] {
   const fromMs = query.from ? Date.parse(query.from) : Number.NEGATIVE_INFINITY;
   const toMs = query.to ? Date.parse(query.to) : Number.POSITIVE_INFINITY;
-  const limit = Math.max(1, Math.min(query.limit ?? 500, 5000));
 
   return rows
     .filter((row) => row.companyId === query.companyId)
@@ -150,7 +180,7 @@ function filterHistory(rows: NormalizedTelemetry[], query: TelemetryHistoryQuery
       return Number.isFinite(t) && t >= fromMs && t <= toMs;
     })
     .sort((a, b) => Date.parse(b.recordedAt) - Date.parse(a.recordedAt))
-    .slice(0, limit);
+    .slice(0, query.limit);
 }
 
 export function createTelemetryRepository(): TelemetryRepository {
