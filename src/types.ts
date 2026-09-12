@@ -203,7 +203,7 @@ export interface Department {
   id: string;
   companyId: string;
   name: string;
-  code?: string;
+  code: string;
   description: string;
   headOfDepartmentId?: string;
   headOfDepartment?: string;
