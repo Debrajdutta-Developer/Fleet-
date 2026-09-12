@@ -4,7 +4,7 @@ import { createTelemetryRepository } from './telemetryRepository.js';
 import { registerConfiguredProviders } from './providers/config.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { ProviderContext } from './providers/types.js';
-import { TenantAuthorizer, type TenantRole } from './tenantAuth.js';
+import { TenantAuthorizer, type TenantPrincipal, type TenantRole } from './tenantAuth.js';
 import { EvidenceStore } from './evidence.js';
 import { createSettlementRepository, normalizeSettlementTerms } from './settlementRepository.js';
 
@@ -82,16 +82,16 @@ function requestedCompanyId(req: IncomingMessage): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
-function authorizeTenant(req: IncomingMessage): ReturnType<TenantAuthorizer['authenticate']> {
-  const principal = tenantAuthorizer.authenticate(req);
+async function authorizeTenant(req: IncomingMessage): Promise<TenantPrincipal | null> {
+  const principal = await tenantAuthorizer.authenticateAsync(req);
   if (!principal) return null;
   const requested = requestedCompanyId(req);
   if (requested && requested !== principal.companyId) return null;
   return principal;
 }
 
-function authorizeFinance(req: IncomingMessage): ReturnType<TenantAuthorizer['authenticate']> {
-  const principal = authorizeTenant(req);
+async function authorizeFinance(req: IncomingMessage): Promise<TenantPrincipal | null> {
+  const principal = await authorizeTenant(req);
   return principal && FINANCE_ROLES.has(principal.role) ? principal : null;
 }
 
@@ -118,8 +118,10 @@ const server = createServer(async (req, res) => {
         providersConfigured: providerRegistry.list().length,
         tenantReadPrincipalsConfigured: tenantAuthorizer.configuredCount,
         jwtEnabled: tenantAuthorizer.jwtEnabled,
+        oidcEnabled: tenantAuthorizer.oidcEnabled,
         telemetryHistoryRepository: historyRepository.kind,
         settlementRepository: settlementRepository.kind,
+        evidenceStorage: evidenceStore.storageKind,
       });
     }
 
@@ -157,7 +159,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
-      const principal = authorizeTenant(req);
+      const principal = await authorizeTenant(req);
       if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
       return sendJson(req, res, 200, {
         companyId: principal.companyId,
@@ -167,7 +169,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname.startsWith('/api/telemetry/live/')) {
-      const principal = authorizeTenant(req);
+      const principal = await authorizeTenant(req);
       if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
       const vehicleId = decodeURIComponent(url.pathname.slice('/api/telemetry/live/'.length));
       const reading = store.get(principal.companyId, vehicleId);
@@ -177,7 +179,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/history') {
-      const principal = authorizeTenant(req);
+      const principal = await authorizeTenant(req);
       if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
       const rows = await historyRepository.history({
         companyId: principal.companyId,
@@ -190,7 +192,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname === '/api/finance/settlement-terms') {
-      const principal = authorizeFinance(req);
+      const principal = await authorizeFinance(req);
       if (!principal) return sendJson(req, res, 403, { error: 'finance access requires owner, manager or accountant role' });
       const terms = await settlementRepository.list(principal.companyId);
       return sendJson(req, res, 200, { companyId: principal.companyId, terms });
@@ -198,7 +200,7 @@ const server = createServer(async (req, res) => {
 
     const settlementVehicleId = settlementVehicleIdFromPath(url.pathname);
     if (settlementVehicleId && (method === 'GET' || method === 'PUT')) {
-      const principal = authorizeFinance(req);
+      const principal = await authorizeFinance(req);
       if (!principal) return sendJson(req, res, 403, { error: 'finance access requires owner, manager or accountant role' });
 
       if (method === 'GET') {
@@ -215,7 +217,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname.startsWith('/api/trips/') && url.pathname.endsWith('/evidence')) {
-      const principal = authorizeTenant(req);
+      const principal = await authorizeTenant(req);
       if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
       const rawTripId = url.pathname.slice('/api/trips/'.length, -'/evidence'.length);
       const tripId = decodeURIComponent(rawTripId).replace(/^\/+|\/+$/g, '');
