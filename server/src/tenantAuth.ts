@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 
 export type TenantRole = 'owner' | 'manager' | 'dispatcher' | 'driver' | 'accountant' | 'compliance';
 
@@ -69,12 +70,27 @@ function audienceMatches(claim: unknown, expected: string): boolean {
   return Array.isArray(claim) && claim.some((item) => item === expected);
 }
 
+function bearer(req: IncomingMessage): string {
+  const header = req.headers.authorization ?? '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+}
+
+function claim(payload: JWTPayload, name: string): unknown {
+  return (payload as Record<string, unknown>)[name];
+}
+
 export class TenantAuthorizer {
   private readonly byToken = new Map<string, TenantPrincipal>();
   private readonly jwtSecret = process.env.FLEETOS_JWT_SECRET?.trim() ?? '';
   private readonly issuer = process.env.FLEETOS_JWT_ISSUER?.trim() ?? '';
   private readonly audience = process.env.FLEETOS_JWT_AUDIENCE?.trim() ?? '';
   private readonly allowDevTokens = process.env.FLEETOS_ALLOW_DEV_TOKENS === 'true';
+  private readonly oidcJwksUrl = process.env.FLEETOS_OIDC_JWKS_URL?.trim() ?? '';
+  private readonly oidcIssuer = process.env.FLEETOS_OIDC_ISSUER?.trim() ?? '';
+  private readonly oidcAudience = process.env.FLEETOS_OIDC_AUDIENCE?.trim() ?? '';
+  private readonly oidcCompanyClaim = process.env.FLEETOS_OIDC_COMPANY_CLAIM?.trim() || 'companyId';
+  private readonly oidcRoleClaim = process.env.FLEETOS_OIDC_ROLE_CLAIM?.trim() || 'role';
+  private readonly remoteJwks = this.oidcJwksUrl ? createRemoteJWKSet(new URL(this.oidcJwksUrl)) : null;
 
   constructor(rawConfig = process.env.FLEETOS_TENANT_READ_TOKENS_JSON?.trim() ?? '') {
     if (!rawConfig) return;
@@ -97,9 +113,7 @@ export class TenantAuthorizer {
   }
 
   authenticate(req: IncomingMessage, now = new Date()): TenantPrincipal | null {
-    const header = req.headers.authorization ?? '';
-    if (!header.startsWith('Bearer ')) return null;
-    const token = header.slice(7).trim();
+    const token = bearer(req);
     if (!token) return null;
 
     if (this.jwtSecret) {
@@ -123,11 +137,38 @@ export class TenantAuthorizer {
     return this.allowDevTokens ? (this.byToken.get(token) ?? null) : null;
   }
 
+  async authenticateAsync(req: IncomingMessage, now = new Date()): Promise<TenantPrincipal | null> {
+    const local = this.authenticate(req, now);
+    if (local) return local;
+    const token = bearer(req);
+    if (!token || !this.remoteJwks) return null;
+
+    try {
+      const { payload } = await jwtVerify(token, this.remoteJwks, {
+        issuer: this.oidcIssuer || undefined,
+        audience: this.oidcAudience || undefined,
+        currentDate: now,
+      });
+      const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+      const companyRaw = claim(payload, this.oidcCompanyClaim);
+      const roleRaw = claim(payload, this.oidcRoleClaim);
+      const companyId = typeof companyRaw === 'string' ? companyRaw.trim() : '';
+      const role = asRole(roleRaw);
+      return sub && companyId && role ? { sub, companyId, role } : null;
+    } catch {
+      return null;
+    }
+  }
+
   get configuredCount(): number {
     return this.byToken.size;
   }
 
   get jwtEnabled(): boolean {
-    return Boolean(this.jwtSecret);
+    return Boolean(this.jwtSecret || this.remoteJwks);
+  }
+
+  get oidcEnabled(): boolean {
+    return Boolean(this.remoteJwks);
   }
 }
