@@ -1,4 +1,4 @@
-name: One-time HR null safety fixer
+name: One-time department code strictness fixer
 
 on:
   push:
@@ -19,41 +19,23 @@ jobs:
         with:
           ref: complete/fleet-web-foundation
 
-      - name: Apply strict null-safety fixes
+      - name: Restore required department code
         run: |
           python3 <<'PY'
           from pathlib import Path
-
-          replacements = {
-              'src/components/hr/AttendanceShiftModals.tsx': [
-                  ("{isEditing ? `Edit Shift: ${shift.name}` : 'Create Shift Schedule'}", "{isEditing ? `Edit Shift: ${shift?.name ?? ''}` : 'Create Shift Schedule'}"),
-              ],
-              'src/components/hr/DepartmentDesignationModals.tsx': [
-                  ("{isEditing ? `Edit Department: ${department.name}` : 'Create Department'}", "{isEditing ? `Edit Department: ${department?.name ?? ''}` : 'Create Department'}"),
-                  ("{isEditing ? `Edit Designation: ${designation.title}` : 'Create Designation'}", "{isEditing ? `Edit Designation: ${designation?.title ?? ''}` : 'Create Designation'}"),
-              ],
-              'src/components/hr/EmployeeDetailDrawer.tsx': [
-                  ("<span>Joined {new Date(employee.joiningDate).toLocaleDateString()}</span>", "<span>Joined {employee.joiningDate || employee.joinDate ? new Date(employee.joiningDate ?? employee.joinDate!).toLocaleDateString() : '—'}</span>"),
-              ],
-              'src/components/hr/EmployeeModal.tsx': [
-                  ("{isEditing ? `Edit Employee: ${employee.fullName}` : 'Onboard New Employee'}", "{isEditing ? `Edit Employee: ${employee?.fullName ?? ''}` : 'Onboard New Employee'}"),
-              ],
-          }
-
-          for filename, edits in replacements.items():
-              path = Path(filename)
-              text = path.read_text()
-              for old, new in edits:
-                  if old not in text:
-                      raise SystemExit(f'Expected text not found in {filename}: {old}')
-                  text = text.replace(old, new, 1)
-              path.write_text(text)
+          path = Path('src/types.ts')
+          text = path.read_text()
+          old = "export interface Department {\n  id: string;\n  companyId: string;\n  name: string;\n  code?: string;"
+          new = "export interface Department {\n  id: string;\n  companyId: string;\n  name: string;\n  code: string;"
+          if old not in text:
+              raise SystemExit('Department compatibility block not found')
+          path.write_text(text.replace(old, new, 1))
           PY
 
-      - name: Commit fixes
+      - name: Commit fix
         run: |
           git config user.name "FleetOS CI"
           git config user.email "actions@users.noreply.github.com"
-          git add src/components/hr/AttendanceShiftModals.tsx src/components/hr/DepartmentDesignationModals.tsx src/components/hr/EmployeeDetailDrawer.tsx src/components/hr/EmployeeModal.tsx
-          git commit -m "fix: enforce HR modal null safety"
+          git add src/types.ts
+          git commit -m "fix: restore strict department code invariant"
           git push origin HEAD:complete/fleet-web-foundation
