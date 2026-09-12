@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { InMemoryTelemetryRepository } from './telemetryRepository.js';
+import { InMemoryTelemetryRepository, normalizeTelemetryHistoryQuery } from './telemetryRepository.js';
 import type { NormalizedTelemetry } from './telemetry.js';
 
 function reading(companyId: string, vehicleId: string, recordedAt: string): NormalizedTelemetry {
@@ -48,4 +48,15 @@ test('history supports vehicle, time range and limit filters', async () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].vehicleId, 'veh-1');
   assert.equal(rows[0].recordedAt, '2026-09-12T01:20:00Z');
+});
+
+test('history query rejects invalid timestamps and non-finite limits', () => {
+  assert.throws(() => normalizeTelemetryHistoryQuery({ companyId: 'comp-a', from: 'not-a-date' }), /from must be a valid timestamp/);
+  assert.throws(() => normalizeTelemetryHistoryQuery({ companyId: 'comp-a', limit: Number.NaN }), /limit must be a finite number/);
+  assert.throws(() => normalizeTelemetryHistoryQuery({ companyId: 'comp-a', from: '2026-09-12T02:00:00Z', to: '2026-09-12T01:00:00Z' }), /from must not be after to/);
+});
+
+test('history query clamps finite limits to safe bounds', () => {
+  assert.equal(normalizeTelemetryHistoryQuery({ companyId: 'comp-a', limit: 999999 }).limit, 5000);
+  assert.equal(normalizeTelemetryHistoryQuery({ companyId: 'comp-a', limit: 0 }).limit, 1);
 });
