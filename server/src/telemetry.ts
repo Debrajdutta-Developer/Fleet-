@@ -1,4 +1,4 @@
-export type VehicleMotionState = 'moving' | 'idling' | 'stopped' | 'offline';
+export type VehicleMotionState = 'moving' | 'idling' | 'stopped' | 'offline' | 'unknown';
 export type TelemetryFreshness = 'live' | 'recent' | 'stale' | 'offline';
 
 export interface ProviderTelemetryPayload {
@@ -77,7 +77,8 @@ export function motionFrom(
   const speed = asFinite(input.speedKph);
   if (speed !== undefined && speed >= 3) return 'moving';
   if (input.ignitionOn === true) return 'idling';
-  return 'stopped';
+  if (speed !== undefined || input.ignitionOn === false) return 'stopped';
+  return 'unknown';
 }
 
 export function normalizeTelemetry(payload: ProviderTelemetryPayload, receivedAt = new Date()): NormalizedTelemetry {
