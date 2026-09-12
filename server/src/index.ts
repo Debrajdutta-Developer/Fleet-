@@ -7,6 +7,7 @@ import type { ProviderContext } from './providers/types.js';
 import { TenantAuthorizer, type TenantPrincipal, type TenantRole } from './tenantAuth.js';
 import { EvidenceStore } from './evidence.js';
 import { createSettlementRepository, normalizeSettlementTerms } from './settlementRepository.js';
+import { getDeploymentReadiness } from './deploymentReadiness.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
@@ -123,6 +124,11 @@ const server = createServer(async (req, res) => {
         settlementRepository: settlementRepository.kind,
         evidenceStorage: evidenceStore.storageKind,
       });
+    }
+
+    if (method === 'GET' && url.pathname === '/ready') {
+      const readiness = getDeploymentReadiness();
+      return sendJson(req, res, readiness.readyForProduction ? 200 : 503, readiness);
     }
 
     if (method === 'GET' && url.pathname === '/api/providers') {
