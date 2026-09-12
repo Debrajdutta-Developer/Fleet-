@@ -1,0 +1,53 @@
+name: One-time finance UI integration
+
+on:
+  push:
+    branches: [complete/fleet-web-foundation]
+    paths: [.github/workflows/finance_ui_patch.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: complete/fleet-web-foundation
+      - name: Patch BillingView
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('src/views/BillingView.tsx')
+          s=p.read_text()
+          s=s.replace("import { Invoice } from '../types';", "import { Invoice } from '../types';\nimport { SettlementDesk } from '../components/finance/SettlementDesk';")
+          marker="  // Calculate high-level financial P&L\n"
+          helper="""  const formatMoney = (value: number) => new Intl.NumberFormat('en-IN', {\n    style: 'currency',\n    currency: currentCompany.currency || 'INR',\n    maximumFractionDigits: 0,\n  }).format(value);\n\n"""
+          if helper not in s:
+            s=s.replace(marker, helper+marker, 1)
+          replacements={
+            "${totalGrossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}": "{formatMoney(totalGrossRevenue)}",
+            "${totalFuelExpense.toLocaleString(undefined, { minimumFractionDigits: 2 })}": "{formatMoney(totalFuelExpense)}",
+            "${totalMaintenanceExpense.toLocaleString(undefined, { minimumFractionDigits: 2 })}": "{formatMoney(totalMaintenanceExpense)}",
+            "${netOperatingMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}": "{formatMoney(netOperatingMargin)}",
+            "${currentCompany.fastagBalance.toFixed(2)}{' '}": "{formatMoney(currentCompany.fastagBalance)}{' '}",
+            "$300.00": "{formatMoney(300)}",
+            "${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}": "{formatMoney(inv.totalAmount)}",
+            "Positive cashflow generated": "Operating contribution before unrecorded costs and taxes",
+            "Tax invoices with automated fuel surcharge calculations": "Freight invoices based on recorded trip billing; tax is configured separately",
+          }
+          for old,new in replacements.items():
+            s=s.replace(old,new)
+          insert='      {/* FASTag Toll Pool Card */}'
+          if '<SettlementDesk />' not in s:
+            s=s.replace(insert, '      <SettlementDesk />\n\n'+insert, 1)
+          p.write_text(s)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "FleetOS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/views/BillingView.tsx
+          git commit -m "feat: wire settlement desk into finance UI"
+          git push origin HEAD:complete/fleet-web-foundation
