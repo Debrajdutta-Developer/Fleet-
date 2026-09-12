@@ -4,25 +4,29 @@ import { createTelemetryRepository } from './telemetryRepository.js';
 import { registerConfiguredProviders } from './providers/config.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { ProviderContext } from './providers/types.js';
-import { TenantAuthorizer } from './tenantAuth.js';
+import { TenantAuthorizer, type TenantRole } from './tenantAuth.js';
 import { EvidenceStore } from './evidence.js';
+import { createSettlementRepository, normalizeSettlementTerms } from './settlementRepository.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
 const allowedOrigin = process.env.FLEETOS_WEB_ORIGIN?.trim() ?? '';
 const store = new TelemetryStore();
 const historyRepository = createTelemetryRepository();
+const settlementRepository = createSettlementRepository();
 const providerRegistry = new ProviderRegistry();
 const tenantAuthorizer = new TenantAuthorizer();
 const evidenceStore = new EvidenceStore();
 registerConfiguredProviders(providerRegistry);
+
+const FINANCE_ROLES = new Set<TenantRole>(['owner', 'manager', 'accountant']);
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
   if (!origin || !allowedOrigin || origin !== allowedOrigin) return;
   res.setHeader('access-control-allow-origin', origin);
   res.setHeader('vary', 'Origin');
-  res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,OPTIONS');
   res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept,X-FleetOS-Company-Id,X-File-Name');
   res.setHeader('access-control-max-age', '600');
 }
@@ -61,6 +65,14 @@ function providerIdFromPath(pathname: string): string | undefined {
   return decodeURIComponent(encoded);
 }
 
+function settlementVehicleIdFromPath(pathname: string): string | undefined {
+  const prefix = '/api/finance/settlement-terms/';
+  if (!pathname.startsWith(prefix)) return undefined;
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded || encoded.includes('/')) return undefined;
+  return decodeURIComponent(encoded).trim() || undefined;
+}
+
 function requestHeaders(req: IncomingMessage): ProviderContext['headers'] {
   return Object.fromEntries(Object.entries(req.headers));
 }
@@ -76,6 +88,11 @@ function authorizeTenant(req: IncomingMessage): ReturnType<TenantAuthorizer['aut
   const requested = requestedCompanyId(req);
   if (requested && requested !== principal.companyId) return null;
   return principal;
+}
+
+function authorizeFinance(req: IncomingMessage): ReturnType<TenantAuthorizer['authenticate']> {
+  const principal = authorizeTenant(req);
+  return principal && FINANCE_ROLES.has(principal.role) ? principal : null;
 }
 
 async function persistReading(reading: ReturnType<typeof normalizeTelemetry>): Promise<void> {
@@ -101,7 +118,8 @@ const server = createServer(async (req, res) => {
         providersConfigured: providerRegistry.list().length,
         tenantReadPrincipalsConfigured: tenantAuthorizer.configuredCount,
         jwtEnabled: tenantAuthorizer.jwtEnabled,
-        durableHistory: Boolean(process.env.FLEETOS_TELEMETRY_HISTORY_FILE?.trim()),
+        telemetryHistoryRepository: historyRepository.kind,
+        settlementRepository: settlementRepository.kind,
       });
     }
 
@@ -169,6 +187,31 @@ const server = createServer(async (req, res) => {
         limit: Number(url.searchParams.get('limit') ?? 500),
       });
       return sendJson(req, res, 200, { companyId: principal.companyId, readings: rows, count: rows.length });
+    }
+
+    if (method === 'GET' && url.pathname === '/api/finance/settlement-terms') {
+      const principal = authorizeFinance(req);
+      if (!principal) return sendJson(req, res, 403, { error: 'finance access requires owner, manager or accountant role' });
+      const terms = await settlementRepository.list(principal.companyId);
+      return sendJson(req, res, 200, { companyId: principal.companyId, terms });
+    }
+
+    const settlementVehicleId = settlementVehicleIdFromPath(url.pathname);
+    if (settlementVehicleId && (method === 'GET' || method === 'PUT')) {
+      const principal = authorizeFinance(req);
+      if (!principal) return sendJson(req, res, 403, { error: 'finance access requires owner, manager or accountant role' });
+
+      if (method === 'GET') {
+        const terms = await settlementRepository.get(principal.companyId, settlementVehicleId);
+        return terms
+          ? sendJson(req, res, 200, { terms })
+          : sendJson(req, res, 404, { error: 'settlement terms not configured for this vehicle' });
+      }
+
+      const raw = await readJson(req);
+      const terms = normalizeSettlementTerms(principal.companyId, settlementVehicleId, raw, principal.sub);
+      const saved = await settlementRepository.upsert(terms);
+      return sendJson(req, res, 200, { terms: saved });
     }
 
     if (url.pathname.startsWith('/api/trips/') && url.pathname.endsWith('/evidence')) {
