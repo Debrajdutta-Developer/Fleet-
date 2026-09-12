@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Calculator, IndianRupee, Truck, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calculator, IndianRupee, Truck, AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react';
 import { useFleet } from '../../context/FleetContext';
 import {
   calculateTripSettlement,
@@ -7,32 +7,26 @@ import {
   type SettlementBasis,
   type VehicleSettlementTerms,
 } from '../../domain/vehicleSettlement';
-
-interface SavedTerms extends VehicleSettlementTerms {
-  updatedAt: string;
-}
-
-const STORAGE_KEY = 'fleetos_vehicle_settlement_terms';
-
-function loadTerms(): Record<string, SavedTerms> {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, SavedTerms>;
-  } catch {
-    return {};
-  }
-}
+import {
+  listSettlementTerms,
+  saveSettlementTerms,
+  type PersistedVehicleSettlementTerms,
+} from '../../live/settlementClient';
 
 export const SettlementDesk: React.FC = () => {
   const { vehicles, trips, fuelLogs, maintenanceTickets, currentCompany } = useFleet();
-  const [termsByVehicle, setTermsByVehicle] = useState<Record<string, SavedTerms>>(loadTerms);
+  const [termsByVehicle, setTermsByVehicle] = useState<Record<string, PersistedVehicleSettlementTerms>>({});
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles.find((v) => !v.deletedAt)?.id ?? '');
+  const [relation, setRelation] = useState<CommercialVehicleRelation>('owned');
+  const [basis, setBasis] = useState<SettlementBasis>('per_trip');
+  const [rate, setRate] = useState(0);
+  const [ownerName, setOwnerName] = useState('');
+  const [loadingTerms, setLoadingTerms] = useState(true);
+  const [savingTerms, setSavingTerms] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [error, setError] = useState('');
 
   const vehicle = vehicles.find((v) => v.id === selectedVehicleId && !v.deletedAt);
-  const saved = selectedVehicleId ? termsByVehicle[selectedVehicleId] : undefined;
-  const [relation, setRelation] = useState<CommercialVehicleRelation>(saved?.relation ?? 'owned');
-  const [basis, setBasis] = useState<SettlementBasis>(saved?.basis ?? 'per_trip');
-  const [rate, setRate] = useState(saved?.rate ?? 0);
-  const [ownerName, setOwnerName] = useState(saved?.ownerName ?? '');
 
   const money = (value: number) => new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -40,39 +34,72 @@ export const SettlementDesk: React.FC = () => {
     maximumFractionDigits: 0,
   }).format(value);
 
-  const selectVehicle = (id: string) => {
-    setSelectedVehicleId(id);
-    const next = termsByVehicle[id];
-    setRelation(next?.relation ?? 'owned');
-    setBasis(next?.basis ?? 'per_trip');
-    setRate(next?.rate ?? 0);
-    setOwnerName(next?.ownerName ?? '');
+  const applyTerms = (terms?: PersistedVehicleSettlementTerms) => {
+    setRelation(terms?.relation ?? 'owned');
+    setBasis(terms?.basis ?? 'per_trip');
+    setRate(terms?.rate ?? 0);
+    setOwnerName(terms?.ownerName ?? '');
   };
 
-  const saveTerms = () => {
-    if (!selectedVehicleId) return;
-    const next: SavedTerms = {
+  useEffect(() => {
+    let active = true;
+    setLoadingTerms(true);
+    setError('');
+    listSettlementTerms(currentCompany.id)
+      .then((rows) => {
+        if (!active) return;
+        const next = Object.fromEntries(rows.map((row) => [row.vehicleId, row]));
+        setTermsByVehicle(next);
+        applyTerms(selectedVehicleId ? next[selectedVehicleId] : undefined);
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setError(reason instanceof Error ? reason.message : 'Could not load settlement terms');
+      })
+      .finally(() => {
+        if (active) setLoadingTerms(false);
+      });
+    return () => { active = false; };
+  }, [currentCompany.id]);
+
+  const selectVehicle = (id: string) => {
+    setSelectedVehicleId(id);
+    applyTerms(termsByVehicle[id]);
+    setStatusMessage('');
+    setError('');
+  };
+
+  const saveTerms = async () => {
+    if (!selectedVehicleId || savingTerms) return;
+    setSavingTerms(true);
+    setError('');
+    setStatusMessage('');
+    const next: VehicleSettlementTerms = {
       vehicleId: selectedVehicleId,
       relation,
       basis,
       rate: Number(rate) || 0,
       ownerName: relation === 'owned' ? undefined : ownerName.trim() || undefined,
       revenueSharePercent: basis === 'revenue_share' ? Number(rate) || 0 : undefined,
-      updatedAt: new Date().toISOString(),
     };
-    const updated = { ...termsByVehicle, [selectedVehicleId]: next };
-    setTermsByVehicle(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    try {
+      const saved = await saveSettlementTerms(currentCompany.id, next);
+      setTermsByVehicle((current) => ({ ...current, [saved.vehicleId]: saved }));
+      setStatusMessage(`Saved securely ${new Date(saved.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not save settlement terms');
+    } finally {
+      setSavingTerms(false);
+    }
   };
 
   const results = useMemo(() => {
     if (!vehicle) return [];
-    const terms = termsByVehicle[vehicle.id] ?? {
+    const terms: VehicleSettlementTerms = termsByVehicle[vehicle.id] ?? {
       vehicleId: vehicle.id,
-      relation: 'owned' as const,
-      basis: 'per_trip' as const,
+      relation: 'owned',
+      basis: 'per_trip',
       rate: 0,
-      updatedAt: new Date(0).toISOString(),
     };
 
     return trips
@@ -118,7 +145,7 @@ export const SettlementDesk: React.FC = () => {
             <Calculator className="h-4 w-4" /> Commercial settlement desk
           </div>
           <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Owned vs hired vehicle profitability</h3>
-          <p className="text-xs text-slate-500">Uses recorded trip revenue, fuel, toll and allocated maintenance. Loading, detention and other costs remain zero until recorded.</p>
+          <p className="text-xs text-slate-500">Settlement contracts are tenant-scoped and saved through the authenticated FleetOS backend.</p>
         </div>
         <select
           value={selectedVehicleId}
@@ -130,6 +157,13 @@ export const SettlementDesk: React.FC = () => {
           ))}
         </select>
       </div>
+
+      {(loadingTerms || error || statusMessage) && (
+        <div className={`mt-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${error ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}>
+          {loadingTerms ? <Loader2 className="h-4 w-4 animate-spin" /> : error ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+          <span>{loadingTerms ? 'Loading secure settlement terms…' : error || statusMessage}</span>
+        </div>
+      )}
 
       {vehicle && (
         <>
@@ -145,12 +179,12 @@ export const SettlementDesk: React.FC = () => {
               </select>
             </label>
             <label className="text-xs text-slate-500">{basis === 'revenue_share' ? 'Share %' : 'Rate'}
-              <input type="number" min="0" value={rate} onChange={(e) => setRate(Number(e.target.value))} disabled={relation === 'owned'} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900" />
+              <input type="number" min="0" max={basis === 'revenue_share' ? 100 : undefined} value={rate} onChange={(e) => setRate(Number(e.target.value))} disabled={relation === 'owned'} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900" />
             </label>
             <label className="text-xs text-slate-500">Vehicle owner
               <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} disabled={relation === 'owned'} placeholder={relation === 'owned' ? currentCompany.name : 'Owner / vendor name'} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900" />
             </label>
-            <div className="flex items-end"><button onClick={saveTerms} className="w-full rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Save terms</button></div>
+            <div className="flex items-end"><button onClick={saveTerms} disabled={savingTerms || loadingTerms} className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60">{savingTerms && <Loader2 className="h-4 w-4 animate-spin" />}{savingTerms ? 'Saving…' : 'Save terms'}</button></div>
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
