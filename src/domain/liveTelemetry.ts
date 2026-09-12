@@ -23,7 +23,7 @@ export interface SourceEvidence {
 export interface LivePosition {
   latitude: number;
   longitude: number;
-  speedKph: number;
+  speedKph?: number;
   headingDeg?: number;
   accuracyMeters?: number;
   locationLabel?: string;
@@ -56,7 +56,7 @@ export interface LoadTelemetry {
 }
 
 export interface VehicleMotionState {
-  state: 'moving' | 'idling' | 'stopped' | 'offline';
+  state: 'moving' | 'idling' | 'stopped' | 'offline' | 'unknown';
   stoppedSince?: string;
   idleSince?: string;
   durationSeconds?: number;
@@ -113,9 +113,9 @@ const ageSeconds = (iso: string, now: Date): number =>
 
 export const classifyFreshness = (lastUpdatedAt: string, now = new Date()): DataFreshness => {
   const age = ageSeconds(lastUpdatedAt, now);
-  if (age <= 60) return 'live';
-  if (age <= 300) return 'recent';
-  if (age <= 1800) return 'stale';
+  if (age <= 30) return 'live';
+  if (age <= 120) return 'recent';
+  if (age <= 600) return 'stale';
   return 'offline';
 };
 
@@ -124,35 +124,27 @@ export const deriveMotionState = (
   previous?: VehicleMotionState,
   now = new Date()
 ): VehicleMotionState => {
-  const running = position.engineOn ?? position.ignitionOn ?? false;
+  const speed = position.speedKph;
+  const running = position.engineOn ?? position.ignitionOn;
 
-  if (position.speedKph >= 3) {
+  if (speed != null && speed >= 3) {
+    return { state: 'moving', lastMovementAt: position.measuredAt };
+  }
+
+  if (running === true) {
+    const idleSince = previous?.state === 'idling' && previous.idleSince ? previous.idleSince : position.measuredAt;
     return {
-      state: 'moving',
-      lastMovementAt: position.measuredAt,
+      state: 'idling', idleSince, durationSeconds: ageSeconds(idleSince, now), lastMovementAt: previous?.lastMovementAt,
     };
   }
 
-  if (running) {
-    const idleSince = previous?.state === 'idling' && previous.idleSince
-      ? previous.idleSince
-      : position.measuredAt;
-    return {
-      state: 'idling',
-      idleSince,
-      durationSeconds: ageSeconds(idleSince, now),
-      lastMovementAt: previous?.lastMovementAt,
-    };
+  if (speed == null && running == null) {
+    return { state: 'unknown', lastMovementAt: previous?.lastMovementAt };
   }
 
-  const stoppedSince = previous?.state === 'stopped' && previous.stoppedSince
-    ? previous.stoppedSince
-    : position.measuredAt;
+  const stoppedSince = previous?.state === 'stopped' && previous.stoppedSince ? previous.stoppedSince : position.measuredAt;
   return {
-    state: 'stopped',
-    stoppedSince,
-    durationSeconds: ageSeconds(stoppedSince, now),
-    lastMovementAt: previous?.lastMovementAt,
+    state: 'stopped', stoppedSince, durationSeconds: ageSeconds(stoppedSince, now), lastMovementAt: previous?.lastMovementAt,
   };
 };
 
@@ -161,18 +153,10 @@ export const validateLoadReading = (reading: LoadTelemetry): string[] => {
   if (reading.grossWeightKg != null && reading.grossWeightKg < 0) errors.push('Gross weight cannot be negative');
   if (reading.tareWeightKg != null && reading.tareWeightKg < 0) errors.push('Tare weight cannot be negative');
   if (reading.netLoadKg != null && reading.netLoadKg < 0) errors.push('Net load cannot be negative');
-
-  if (
-    reading.grossWeightKg != null &&
-    reading.tareWeightKg != null &&
-    reading.netLoadKg != null
-  ) {
+  if (reading.grossWeightKg != null && reading.tareWeightKg != null && reading.netLoadKg != null) {
     const expected = reading.grossWeightKg - reading.tareWeightKg;
-    if (Math.abs(expected - reading.netLoadKg) > 50) {
-      errors.push('Net load does not match gross minus tare within 50 kg tolerance');
-    }
+    if (Math.abs(expected - reading.netLoadKg) > 50) errors.push('Net load does not match gross minus tare within 50 kg tolerance');
   }
-
   return errors;
 };
 
@@ -180,24 +164,13 @@ export const buildLiveWarnings = (summary: Omit<VehicleLiveSummary, 'warnings'>)
   const warnings: string[] = [];
   if (summary.freshness === 'stale') warnings.push('Telemetry is stale');
   if (summary.freshness === 'offline') warnings.push('Vehicle telemetry is offline');
-  if (summary.motion.state === 'idling' && (summary.motion.durationSeconds ?? 0) >= 900) {
-    warnings.push('Engine idling for 15+ minutes');
-  }
-  if (summary.fuel?.levelPercent != null && summary.fuel.levelPercent <= 15) {
-    warnings.push('Low fuel');
-  }
-  if ((summary.fuel?.drainDetectedLitres ?? 0) >= 5) {
-    warnings.push('Possible fuel drain detected');
-  }
+  if (summary.motion.state === 'unknown') warnings.push('Motion state is unknown because speed/ignition evidence is missing');
+  if (summary.motion.state === 'idling' && (summary.motion.durationSeconds ?? 0) >= 900) warnings.push('Engine idling for 15+ minutes');
+  if (summary.fuel?.levelPercent != null && summary.fuel.levelPercent <= 15) warnings.push('Low fuel');
+  if ((summary.fuel?.drainDetectedLitres ?? 0) >= 5) warnings.push('Possible fuel drain detected');
   warnings.push(...validateLoadReading(summary.load ?? {
-    loadStatus: 'unknown',
-    measuredAt: summary.lastUpdatedAt,
-    evidence: {
-      source: 'manual_verified',
-      receivedAt: summary.lastUpdatedAt,
-      measuredAt: summary.lastUpdatedAt,
-      authoritative: false,
-    },
+    loadStatus: 'unknown', measuredAt: summary.lastUpdatedAt,
+    evidence: { source: 'manual_verified', receivedAt: summary.lastUpdatedAt, measuredAt: summary.lastUpdatedAt, authoritative: false },
   }));
   return warnings;
 };
