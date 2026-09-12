@@ -13,6 +13,7 @@ import { BillingView } from './views/BillingView';
 import { AuditLogsView } from './views/AuditLogsView';
 import { HRView } from './views/HRView';
 import { DriverPortalView } from './views/DriverPortalView';
+import { OidcAuthGate } from './auth/OidcAuthGate';
 
 const FleetAppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -57,9 +58,11 @@ const FleetAppContent: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <FleetProvider>
-      <FleetAppContent />
-    </FleetProvider>
+    <OidcAuthGate>
+      <FleetProvider>
+        <FleetAppContent />
+      </FleetProvider>
+    </OidcAuthGate>
   );
 };
 
