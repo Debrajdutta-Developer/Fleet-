@@ -1,0 +1,62 @@
+name: One-time FleetOS production safety fixes
+
+on:
+  push:
+    branches:
+      - complete/fleet-web-foundation
+    paths:
+      - .github/workflows/fleet_production_safety_fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fixes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: complete/fleet-web-foundation
+
+      - name: Disable implicit demo telemetry and enforce compliance gate
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/context/FleetContext.tsx')
+          text = path.read_text()
+
+          old_sim = "const [isLiveSimulating, setIsLiveSimulating] = useState<boolean>(true);"
+          new_sim = "const [isLiveSimulating, setIsLiveSimulating] = useState<boolean>(() => import.meta.env.VITE_ENABLE_DEMO_TELEMETRY === 'true');"
+          if old_sim not in text:
+              raise SystemExit('Simulation default line not found')
+          text = text.replace(old_sim, new_sim, 1)
+
+          old_comment = "// Telemetry real-time movement ticker"
+          new_comment = "// Explicit demo-only telemetry ticker. Production stays provider-authoritative unless VITE_ENABLE_DEMO_TELEMETRY=true."
+          if old_comment not in text:
+              raise SystemExit('Telemetry ticker comment not found')
+          text = text.replace(old_comment, new_comment, 1)
+
+          old_gate = """      if (!hasVerifiedDocs) {
+        showToast('warning', 'Compliance Gate', 'Vehicle requires at least one verified inspection or PUC certificate before activation.');
+      }"""
+          new_gate = """      if (!hasVerifiedDocs) {
+        showToast('warning', 'Compliance Gate', 'Vehicle requires at least one verified compliance document before activation.');
+        return { success: false, error: 'Verified compliance document required before activation' };
+      }"""
+          if old_gate not in text:
+              raise SystemExit('Compliance gate block not found')
+          text = text.replace(old_gate, new_gate, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit fixes
+        run: |
+          git config user.name "FleetOS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/context/FleetContext.tsx
+          git commit -m "fix: require authoritative telemetry and enforce compliance activation"
+          git push origin HEAD:complete/fleet-web-foundation
