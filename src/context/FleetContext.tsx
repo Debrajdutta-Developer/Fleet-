@@ -41,7 +41,7 @@ import {
   initialAttendanceRecords,
   initialLeaveRequests,
   initialPayrollRecords
-} from '../data/mockData';
+} from '../data/indiaDemoData';
 
 interface ToastNotification {
   id: string;
@@ -306,6 +306,13 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     localStorage.setItem('fleetos_payroll', JSON.stringify(payrollRecords));
   }, [payrollRecords]);
+
+  const formatMoney = useCallback((amount: number) =>
+    new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: currentCompany.currency || 'INR',
+      maximumFractionDigits: 0,
+    }).format(amount), [currentCompany.currency]);
 
   const showToast = useCallback((type: ToastNotification['type'], title: string, message: string) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
@@ -572,7 +579,7 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // Business Rule 4: FASTag balance warning
     if (currentCompany.fastagBalance < tripData.tollFeesEstimated) {
-      showToast('warning', 'Low Toll Balance', `Company FASTag balance ($${currentCompany.fastagBalance}) is below estimated toll fees ($${tripData.tollFeesEstimated}). Please top-up soon.`);
+      showToast('warning', 'Low Toll Balance', `Company FASTag balance (${formatMoney(currentCompany.fastagBalance)}) is below estimated toll fees (${formatMoney(tripData.tollFeesEstimated)}). Please top-up soon.`);
     }
 
     const tripNum = `TRIP-00${Math.floor(1000 + Math.random() * 9000)}`;
@@ -626,8 +633,8 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         customerName: trip.customerName,
         tripId: trip.id,
         amount: trip.freightRevenue,
-        tax: Number((trip.freightRevenue * 0.08).toFixed(2)),
-        totalAmount: Number((trip.freightRevenue * 1.08).toFixed(2)),
+        tax: 0,
+        totalAmount: trip.freightRevenue,
         issueDate: new Date().toISOString().split('T')[0],
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         status: 'unpaid',
@@ -771,7 +778,7 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
     );
 
-    logAudit('STATUS_CHANGE', 'maintenance', ticketId, `Closed Work Order ${ticket.ticketNumber} (Actual Cost: $${actualCost})`, {
+    logAudit('STATUS_CHANGE', 'maintenance', ticketId, `Closed Work Order ${ticket.ticketNumber} (Actual Cost: ${formatMoney(actualCost)})`, {
       after: { status: 'closed', actualCost },
     });
     showToast('success', 'Maintenance Resolved', `Work order ${ticket.ticketNumber} marked closed. Vehicle returned to fleet pool.`);
@@ -798,7 +805,7 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // FASTag & Billing
   const topUpFastag = (amount: number) => {
     setCurrentCompany((prev) => ({ ...prev, fastagBalance: prev.fastagBalance + amount }));
-    showToast('success', 'FASTag Recharge Successful', `Added $${amount.toFixed(2)} to toll balance.`);
+    showToast('success', 'FASTag Recharge Successful', `Added ${formatMoney(amount)} to toll balance.`);
   };
 
   const createInvoice = (inv: Omit<Invoice, 'id' | 'invoiceNumber'>) => {
@@ -1124,7 +1131,7 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       overtimeHours: 0,
       clockInLatitude: coords?.lat,
       clockInLongitude: coords?.lng,
-      locationName: locationName || 'Apex Fleet Logistics Terminal',
+      locationName: locationName || 'Fleet terminal',
       notes: `Mobile / Web check-in at ${checkInTime}`,
     };
 
