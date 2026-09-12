@@ -12,7 +12,7 @@ export interface VerifiedCompanyFleetSnapshot {
 export class RegistryMirror implements VehicleRegistryGateway {
   readonly id = 'fleetos-registry-mirror';
   private readonly byCompany = new Map<string, VerifiedCompanyFleetSnapshot>();
-  private readonly byRegistration = new Map<string, RegistryVehicleRecord>();
+  private readonly permittedLookupByCompany = new Map<string, Map<string, RegistryVehicleRecord>>();
 
   ingestCompanySnapshot(snapshot: VerifiedCompanyFleetSnapshot): void {
     if (!snapshot.companyExternalRef.trim()) throw new Error('companyExternalRef is required');
@@ -28,27 +28,44 @@ export class RegistryMirror implements VehicleRegistryGateway {
       sourceReferenceId: vehicle.sourceReferenceId ?? snapshot.sourceReferenceId,
     }));
 
-    const normalizedSnapshot: VerifiedCompanyFleetSnapshot = {
-      ...snapshot,
-      vehicles: normalizedVehicles,
-    };
-
-    this.byCompany.set(snapshot.companyExternalRef, normalizedSnapshot);
-    for (const vehicle of normalizedVehicles) {
-      this.byRegistration.set(vehicle.registrationNumber, vehicle);
-    }
+    this.byCompany.set(snapshot.companyExternalRef, { ...snapshot, vehicles: normalizedVehicles });
   }
 
-  async lookupByRegistration(registrationNumber: string, _company: CompanyAccount): Promise<RegistryVehicleRecord | null> {
-    return this.byRegistration.get(normalizeRegistrationNumber(registrationNumber)) ?? null;
+  ingestPermittedLookupRecord(companyExternalRef: string, record: RegistryVehicleRecord): void {
+    const ref = companyExternalRef.trim();
+    if (!ref) throw new Error('companyExternalRef is required');
+    const registrationNumber = normalizeRegistrationNumber(record.registrationNumber);
+    if (!registrationNumber) throw new Error('registrationNumber is required');
+    let bucket = this.permittedLookupByCompany.get(ref);
+    if (!bucket) {
+      bucket = new Map();
+      this.permittedLookupByCompany.set(ref, bucket);
+    }
+    bucket.set(registrationNumber, { ...record, registrationNumber });
+  }
+
+  async lookupByRegistration(registrationNumber: string, company: CompanyAccount): Promise<RegistryVehicleRecord | null> {
+    const registration = normalizeRegistrationNumber(registrationNumber);
+    for (const ref of this.companyRefs(company)) {
+      const snapshot = this.byCompany.get(ref);
+      const owned = snapshot?.vehicles.find((vehicle) => vehicle.registrationNumber === registration);
+      if (owned) return owned;
+
+      const permitted = this.permittedLookupByCompany.get(ref)?.get(registration);
+      if (permitted) return permitted;
+    }
+    return null;
   }
 
   async listVehiclesForVerifiedCompany(company: CompanyAccount): Promise<RegistryVehicleRecord[]> {
-    const refs = [company.gstin, company.pan, company.id].filter((value): value is string => Boolean(value));
-    for (const ref of refs) {
+    for (const ref of this.companyRefs(company)) {
       const snapshot = this.byCompany.get(ref);
       if (snapshot) return snapshot.vehicles;
     }
     return [];
+  }
+
+  private companyRefs(company: CompanyAccount): string[] {
+    return [company.gstin, company.pan, company.id].filter((value): value is string => Boolean(value));
   }
 }
