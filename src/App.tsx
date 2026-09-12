@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FleetProvider } from './context/FleetContext';
+import { FleetProvider, useFleet } from './context/FleetContext';
 import { Header } from './components/Header';
 import { Sidebar, ActiveTab } from './components/Sidebar';
 import { Toasts } from './components/Toasts';
@@ -12,9 +12,23 @@ import { ComplianceVaultView } from './views/ComplianceVaultView';
 import { BillingView } from './views/BillingView';
 import { AuditLogsView } from './views/AuditLogsView';
 import { HRView } from './views/HRView';
+import { DriverPortalView } from './views/DriverPortalView';
 
 const FleetAppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const { currentUser } = useFleet();
+
+  if (currentUser.role === 'driver') {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
+        <Header />
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
+          <DriverPortalView />
+        </main>
+        <Toasts />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
