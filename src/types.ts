@@ -198,12 +198,12 @@ export interface Invoice {
 }
 
 // Enterprise HR & Employee Management Models
-// Some compatibility aliases below preserve older UI forms while the HR module is migrated.
+// Compatibility aliases preserve legacy forms while the HR module is migrated.
 export interface Department {
   id: string;
   companyId: string;
   name: string;
-  code: string;
+  code?: string;
   description: string;
   headOfDepartmentId?: string;
   headOfDepartment?: string;
@@ -218,7 +218,7 @@ export interface Designation {
   id: string;
   companyId: string;
   title: string;
-  code: string;
+  code?: string;
   departmentId: string;
   description?: string;
   level: 'entry' | 'mid' | 'senior' | 'lead' | 'executive' | number;
@@ -233,13 +233,13 @@ export interface Shift {
   id: string;
   companyId: string;
   name: string;
-  code: string;
+  code?: string;
   startTime: string;
   endTime: string;
-  breakDurationMins: number;
+  breakDurationMins?: number;
   gracePeriodMins: number;
   workingDays: string[];
-  isActive: boolean;
+  isActive?: boolean;
   isNightShift?: boolean;
 }
 
