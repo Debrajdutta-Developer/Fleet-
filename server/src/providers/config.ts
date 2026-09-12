@@ -15,8 +15,8 @@ export function registerConfiguredProviders(registry: ProviderRegistry): void {
       throw new Error('each provider mapping must be an object');
     }
     const config = entry as GenericJsonProviderConfig;
-    if (!config.providerId || !config.map) {
-      throw new Error('provider mapping requires providerId and map');
+    if (!config.providerId || !config.companyId || !config.map) {
+      throw new Error('provider mapping requires providerId, companyId and map');
     }
     registry.register(new GenericJsonTelemetryAdapter(config));
   }
