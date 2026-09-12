@@ -1,8 +1,8 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { TenantPrincipal } from './tenantAuth.js';
+import { createEvidenceStorage, type EvidenceStorage } from './evidenceStorage.js';
 
 export type EvidenceType = 'fuel_receipt' | 'toll_receipt' | 'repair_receipt' | 'pod' | 'weighment' | 'other';
 
@@ -17,6 +17,7 @@ export interface TripEvidenceRecord {
   contentType: string;
   sizeBytes: number;
   storagePath: string;
+  storageKind: EvidenceStorage['kind'];
   createdAt: string;
 }
 
@@ -44,7 +45,11 @@ async function readBinary(req: IncomingMessage): Promise<Buffer> {
 }
 
 export class EvidenceStore {
-  constructor(private readonly root = process.env.FLEETOS_EVIDENCE_DIR?.trim() || './data/evidence') {}
+  constructor(private readonly storage: EvidenceStorage = createEvidenceStorage()) {}
+
+  get storageKind(): EvidenceStorage['kind'] {
+    return this.storage.kind;
+  }
 
   async upload(req: IncomingMessage, principal: TenantPrincipal, tripId: string, evidenceType: string): Promise<TripEvidenceRecord> {
     if (!['driver', 'owner', 'manager', 'dispatcher', 'accountant'].includes(principal.role)) {
@@ -61,11 +66,10 @@ export class EvidenceStore {
     const id = randomUUID();
     const company = safeSegment(principal.companyId);
     const trip = safeSegment(tripId);
-    const fileName = `${id}${extname(rawName).toLowerCase()}`;
-    const dir = join(this.root, company, trip);
-    await mkdir(dir, { recursive: true });
-    const storagePath = join(dir, fileName);
-    await writeFile(storagePath, body, { flag: 'wx' });
+    const extension = extname(rawName).toLowerCase().replace(/[^.a-z0-9]/g, '');
+    const prefix = `${company}/${trip}`;
+    const objectKey = `${prefix}/${id}${extension}`;
+    const metadataKey = `${objectKey}.json`;
 
     const record: TripEvidenceRecord = {
       id,
@@ -77,30 +81,26 @@ export class EvidenceStore {
       originalFileName: rawName.slice(0, 240),
       contentType,
       sizeBytes: body.length,
-      storagePath,
+      storagePath: objectKey,
+      storageKind: this.storage.kind,
       createdAt: new Date().toISOString(),
     };
-    await writeFile(`${storagePath}.json`, JSON.stringify(record, null, 2), { flag: 'wx' });
+
+    await this.storage.put(objectKey, body, contentType);
+    await this.storage.putJson(metadataKey, record);
     return record;
   }
 
   async list(companyId: string, tripId: string): Promise<TripEvidenceRecord[]> {
-    const dir = join(this.root, safeSegment(companyId), safeSegment(tripId));
-    let names: string[] = [];
-    try {
-      names = await readdir(dir);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw error;
-    }
+    const prefix = `${safeSegment(companyId)}/${safeSegment(tripId)}/`;
+    const values = await this.storage.listJson(prefix);
     const records: TripEvidenceRecord[] = [];
-    for (const name of names.filter((name) => name.endsWith('.json'))) {
-      try {
-        const parsed = JSON.parse(await readFile(join(dir, name), 'utf8')) as TripEvidenceRecord;
-        if (parsed.companyId === companyId && parsed.tripId === tripId) records.push(parsed);
-      } catch {
-        // Ignore malformed metadata sidecars; never expose untrusted raw directory data.
-      }
+    for (const value of values) {
+      if (!value || typeof value !== 'object') continue;
+      const parsed = value as Partial<TripEvidenceRecord>;
+      if (parsed.companyId !== companyId || parsed.tripId !== tripId) continue;
+      if (!parsed.id || !parsed.createdAt || !parsed.storagePath || !parsed.contentType || !parsed.evidenceType) continue;
+      records.push(parsed as TripEvidenceRecord);
     }
     return records.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   }
