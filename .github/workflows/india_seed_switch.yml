@@ -1,0 +1,65 @@
+name: One-time India seed migration
+
+on:
+  push:
+    branches:
+      - complete/fleet-web-foundation
+    paths:
+      - .github/workflows/india_seed_switch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: complete/fleet-web-foundation
+
+      - name: Apply India-first context migration
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('src/context/FleetContext.tsx')
+          text = p.read_text()
+
+          replacements = [
+            ("} from '../data/mockData';", "} from '../data/indiaDemoData';"),
+            ("tax: Number((trip.freightRevenue * 0.08).toFixed(2)),", "tax: 0,"),
+            ("totalAmount: Number((trip.freightRevenue * 1.08).toFixed(2)),", "totalAmount: trip.freightRevenue,"),
+            ("locationName: locationName || 'Apex Fleet Logistics Terminal',", "locationName: locationName || 'Fleet terminal',"),
+          ]
+          for old, new in replacements:
+            if old not in text:
+              raise SystemExit(f'expected text not found: {old}')
+            text = text.replace(old, new, 1)
+
+          marker = "  const showToast = useCallback((type: ToastNotification['type'], title: string, message: string) => {"
+          helper = """  const formatMoney = useCallback((amount: number) =>\n    new Intl.NumberFormat('en-IN', {\n      style: 'currency',\n      currency: currentCompany.currency || 'INR',\n      maximumFractionDigits: 0,\n    }).format(amount), [currentCompany.currency]);\n\n"""
+          if marker not in text:
+            raise SystemExit('showToast marker not found')
+          text = text.replace(marker, helper + marker, 1)
+
+          string_replacements = [
+            ("`Company FASTag balance ($${currentCompany.fastagBalance}) is below estimated toll fees ($${tripData.tollFeesEstimated}). Please top-up soon.`", "`Company FASTag balance (${formatMoney(currentCompany.fastagBalance)}) is below estimated toll fees (${formatMoney(tripData.tollFeesEstimated)}). Please top-up soon.`"),
+            ("`Closed Work Order ${ticket.ticketNumber} (Actual Cost: $${actualCost})`", "`Closed Work Order ${ticket.ticketNumber} (Actual Cost: ${formatMoney(actualCost)})`"),
+            ("`Added $${amount.toFixed(2)} to toll balance.`", "`Added ${formatMoney(amount)} to toll balance.`"),
+          ]
+          for old, new in string_replacements:
+            if old not in text:
+              raise SystemExit(f'currency text not found: {old}')
+            text = text.replace(old, new, 1)
+
+          p.write_text(text)
+          PY
+
+      - name: Commit migration
+        run: |
+          git config user.name "FleetOS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/context/FleetContext.tsx
+          git commit -m "feat: switch FleetOS demo to India coal seed"
+          git push origin HEAD:complete/fleet-web-foundation
