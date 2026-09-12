@@ -12,6 +12,7 @@ import {
   Truck,
 } from 'lucide-react';
 import { useFleet } from '../context/FleetContext';
+import { DriverEvidencePanel } from '../components/driver/DriverEvidencePanel';
 
 const card = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900';
 
@@ -169,6 +170,7 @@ export const DriverPortalView: React.FC = () => {
           <p className="mt-4 text-sm text-slate-500">When dispatch assigns a trip, route, load and checkpoint progress will appear here.</p>
         )}
       </section>
+      {trip && <DriverEvidencePanel companyId={currentCompany.id} tripId={trip.id} />}
     </div>
   );
 };

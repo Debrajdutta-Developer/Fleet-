@@ -5,6 +5,7 @@ import { registerConfiguredProviders } from './providers/config.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { ProviderContext } from './providers/types.js';
 import { TenantAuthorizer } from './tenantAuth.js';
+import { EvidenceStore } from './evidence.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
@@ -13,6 +14,7 @@ const store = new TelemetryStore();
 const historyRepository = createTelemetryRepository();
 const providerRegistry = new ProviderRegistry();
 const tenantAuthorizer = new TenantAuthorizer();
+const evidenceStore = new EvidenceStore();
 registerConfiguredProviders(providerRegistry);
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
@@ -21,7 +23,7 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
   res.setHeader('access-control-allow-origin', origin);
   res.setHeader('vary', 'Origin');
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept,X-FleetOS-Company-Id');
+  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept,X-FleetOS-Company-Id,X-File-Name');
   res.setHeader('access-control-max-age', '600');
 }
 
@@ -167,6 +169,25 @@ const server = createServer(async (req, res) => {
         limit: Number(url.searchParams.get('limit') ?? 500),
       });
       return sendJson(req, res, 200, { companyId: principal.companyId, readings: rows, count: rows.length });
+    }
+
+    if (url.pathname.startsWith('/api/trips/') && url.pathname.endsWith('/evidence')) {
+      const principal = authorizeTenant(req);
+      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
+      const rawTripId = url.pathname.slice('/api/trips/'.length, -'/evidence'.length);
+      const tripId = decodeURIComponent(rawTripId).replace(/^\/+|\/+$/g, '');
+      if (!tripId) return sendJson(req, res, 400, { error: 'tripId is required' });
+
+      if (method === 'GET') {
+        const evidence = await evidenceStore.list(principal.companyId, tripId);
+        return sendJson(req, res, 200, { tripId, evidence, count: evidence.length });
+      }
+      if (method === 'POST') {
+        const evidenceType = url.searchParams.get('type')?.trim() || 'other';
+        const evidence = await evidenceStore.upload(req, principal, tripId, evidenceType);
+        return sendJson(req, res, 201, { accepted: true, evidence });
+      }
+      return sendJson(req, res, 405, { error: 'method not allowed' });
     }
 
     return sendJson(req, res, 404, { error: 'not found' });
