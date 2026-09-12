@@ -1,0 +1,54 @@
+name: One-time trip evidence wiring
+
+on:
+  push:
+    branches: [complete/fleet-web-foundation]
+    paths: [.github/workflows/evidence_wiring.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: complete/fleet-web-foundation
+      - name: Wire backend and driver UI
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p=Path('server/src/index.ts')
+          s=p.read_text()
+          if "from './evidence.js'" not in s:
+            s=s.replace("import { TenantAuthorizer } from './tenantAuth.js';", "import { TenantAuthorizer } from './tenantAuth.js';\nimport { EvidenceStore } from './evidence.js';")
+          if 'const evidenceStore = new EvidenceStore();' not in s:
+            s=s.replace('const tenantAuthorizer = new TenantAuthorizer();', 'const tenantAuthorizer = new TenantAuthorizer();\nconst evidenceStore = new EvidenceStore();')
+          s=s.replace("Authorization,Content-Type,Accept,X-FleetOS-Company-Id", "Authorization,Content-Type,Accept,X-FleetOS-Company-Id,X-File-Name")
+          marker="    return sendJson(req, res, 404, { error: 'not found' });"
+          block="""    if (url.pathname.startsWith('/api/trips/') && url.pathname.endsWith('/evidence')) {\n      const principal = authorizeTenant(req);\n      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });\n      const rawTripId = url.pathname.slice('/api/trips/'.length, -'/evidence'.length);\n      const tripId = decodeURIComponent(rawTripId).replace(/^\\/+|\\/+$/g, '');\n      if (!tripId) return sendJson(req, res, 400, { error: 'tripId is required' });\n\n      if (method === 'GET') {\n        const evidence = await evidenceStore.list(principal.companyId, tripId);\n        return sendJson(req, res, 200, { tripId, evidence, count: evidence.length });\n      }\n      if (method === 'POST') {\n        const evidenceType = url.searchParams.get('type')?.trim() || 'other';\n        const evidence = await evidenceStore.upload(req, principal, tripId, evidenceType);\n        return sendJson(req, res, 201, { accepted: true, evidence });\n      }\n      return sendJson(req, res, 405, { error: 'method not allowed' });\n    }\n\n"""
+          if block not in s:
+            if marker not in s: raise SystemExit('server insertion marker missing')
+            s=s.replace(marker, block+marker, 1)
+          p.write_text(s)
+
+          p=Path('src/views/DriverPortalView.tsx')
+          s=p.read_text()
+          if "DriverEvidencePanel" not in s:
+            s=s.replace("import { useFleet } from '../context/FleetContext';", "import { useFleet } from '../context/FleetContext';\nimport { DriverEvidencePanel } from '../components/driver/DriverEvidencePanel';")
+          insert="      {trip && <DriverEvidencePanel companyId={currentCompany.id} tripId={trip.id} />}\n"
+          if insert not in s:
+            marker='    </div>\n  );\n};'
+            if marker not in s: raise SystemExit('driver insertion marker missing')
+            s=s.replace(marker, insert+marker, 1)
+          p.write_text(s)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "FleetOS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add server/src/index.ts src/views/DriverPortalView.tsx
+          git commit -m "feat: wire driver trip evidence upload workflow"
+          git push origin HEAD:complete/fleet-web-foundation
