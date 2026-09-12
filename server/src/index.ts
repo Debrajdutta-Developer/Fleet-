@@ -4,7 +4,8 @@ import { createTelemetryRepository } from './telemetryRepository.js';
 import { registerConfiguredProviders } from './providers/config.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { ProviderContext } from './providers/types.js';
-import { TenantAuthorizer, type TenantPrincipal, type TenantRole } from './tenantAuth.js';
+import { TenantAuthorizer, type TenantRole } from './tenantAuth.js';
+import { authorizeRoleRequest, authorizeTenantRequest } from './httpAuthorization.js';
 import { EvidenceStore } from './evidence.js';
 import { createSettlementRepository, normalizeSettlementTerms } from './settlementRepository.js';
 import { getDeploymentReadiness } from './deploymentReadiness.js';
@@ -78,24 +79,6 @@ function requestHeaders(req: IncomingMessage): ProviderContext['headers'] {
   return Object.fromEntries(Object.entries(req.headers));
 }
 
-function requestedCompanyId(req: IncomingMessage): string {
-  const value = req.headers['x-fleetos-company-id'];
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
-}
-
-async function authorizeTenant(req: IncomingMessage): Promise<TenantPrincipal | null> {
-  const principal = await tenantAuthorizer.authenticateAsync(req);
-  if (!principal) return null;
-  const requested = requestedCompanyId(req);
-  if (requested && requested !== principal.companyId) return null;
-  return principal;
-}
-
-async function authorizeFinance(req: IncomingMessage): Promise<TenantPrincipal | null> {
-  const principal = await authorizeTenant(req);
-  return principal && FINANCE_ROLES.has(principal.role) ? principal : null;
-}
-
 async function persistReading(reading: ReturnType<typeof normalizeTelemetry>): Promise<void> {
   store.upsert(reading);
   await historyRepository.append(reading);
@@ -165,77 +148,87 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
-      const principal = await authorizeTenant(req);
-      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
       return sendJson(req, res, 200, {
-        companyId: principal.companyId,
-        vehicles: store.list(principal.companyId),
+        companyId: authorization.principal.companyId,
+        vehicles: store.list(authorization.principal.companyId),
         generatedAt: new Date().toISOString(),
       });
     }
 
     if (method === 'GET' && url.pathname.startsWith('/api/telemetry/live/')) {
-      const principal = await authorizeTenant(req);
-      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
       const vehicleId = decodeURIComponent(url.pathname.slice('/api/telemetry/live/'.length));
-      const reading = store.get(principal.companyId, vehicleId);
+      const reading = store.get(authorization.principal.companyId, vehicleId);
       return reading
         ? sendJson(req, res, 200, reading)
         : sendJson(req, res, 404, { error: 'no telemetry available for vehicle in this tenant' });
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/history') {
-      const principal = await authorizeTenant(req);
-      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
       const rows = await historyRepository.history({
-        companyId: principal.companyId,
+        companyId: authorization.principal.companyId,
         vehicleId: url.searchParams.get('vehicleId')?.trim() || undefined,
         from: url.searchParams.get('from')?.trim() || undefined,
         to: url.searchParams.get('to')?.trim() || undefined,
         limit: Number(url.searchParams.get('limit') ?? 500),
       });
-      return sendJson(req, res, 200, { companyId: principal.companyId, readings: rows, count: rows.length });
+      return sendJson(req, res, 200, { companyId: authorization.principal.companyId, readings: rows, count: rows.length });
     }
 
     if (method === 'GET' && url.pathname === '/api/finance/settlement-terms') {
-      const principal = await authorizeFinance(req);
-      if (!principal) return sendJson(req, res, 403, { error: 'finance access requires owner, manager or accountant role' });
-      const terms = await settlementRepository.list(principal.companyId);
-      return sendJson(req, res, 200, { companyId: principal.companyId, terms });
+      const authorization = await authorizeRoleRequest(
+        req,
+        tenantAuthorizer,
+        FINANCE_ROLES,
+        'finance access requires owner, manager or accountant role',
+      );
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+      const terms = await settlementRepository.list(authorization.principal.companyId);
+      return sendJson(req, res, 200, { companyId: authorization.principal.companyId, terms });
     }
 
     const settlementVehicleId = settlementVehicleIdFromPath(url.pathname);
     if (settlementVehicleId && (method === 'GET' || method === 'PUT')) {
-      const principal = await authorizeFinance(req);
-      if (!principal) return sendJson(req, res, 403, { error: 'finance access requires owner, manager or accountant role' });
+      const authorization = await authorizeRoleRequest(
+        req,
+        tenantAuthorizer,
+        FINANCE_ROLES,
+        'finance access requires owner, manager or accountant role',
+      );
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
 
       if (method === 'GET') {
-        const terms = await settlementRepository.get(principal.companyId, settlementVehicleId);
+        const terms = await settlementRepository.get(authorization.principal.companyId, settlementVehicleId);
         return terms
           ? sendJson(req, res, 200, { terms })
           : sendJson(req, res, 404, { error: 'settlement terms not configured for this vehicle' });
       }
 
       const raw = await readJson(req);
-      const terms = normalizeSettlementTerms(principal.companyId, settlementVehicleId, raw, principal.sub);
+      const terms = normalizeSettlementTerms(authorization.principal.companyId, settlementVehicleId, raw, authorization.principal.sub);
       const saved = await settlementRepository.upsert(terms);
       return sendJson(req, res, 200, { terms: saved });
     }
 
     if (url.pathname.startsWith('/api/trips/') && url.pathname.endsWith('/evidence')) {
-      const principal = await authorizeTenant(req);
-      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
       const rawTripId = url.pathname.slice('/api/trips/'.length, -'/evidence'.length);
       const tripId = decodeURIComponent(rawTripId).replace(/^\/+|\/+$/g, '');
       if (!tripId) return sendJson(req, res, 400, { error: 'tripId is required' });
 
       if (method === 'GET') {
-        const evidence = await evidenceStore.list(principal.companyId, tripId);
+        const evidence = await evidenceStore.list(authorization.principal.companyId, tripId);
         return sendJson(req, res, 200, { tripId, evidence, count: evidence.length });
       }
       if (method === 'POST') {
         const evidenceType = url.searchParams.get('type')?.trim() || 'other';
-        const evidence = await evidenceStore.upload(req, principal, tripId, evidenceType);
+        const evidence = await evidenceStore.upload(req, authorization.principal, tripId, evidenceType);
         return sendJson(req, res, 201, { accepted: true, evidence });
       }
       return sendJson(req, res, 405, { error: 'method not allowed' });
