@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
 import { EvidenceStore } from './evidence.js';
+import { LocalEvidenceStorage } from './evidenceStorage.js';
 import type { TenantPrincipal } from './tenantAuth.js';
 
 function request(body: Buffer, contentType = 'image/jpeg', fileName = 'proof.jpg'): IncomingMessage {
@@ -28,13 +29,14 @@ const driver: TenantPrincipal = {
 test('stores evidence inside the authenticated tenant and trip scope', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fleetos-evidence-'));
   try {
-    const store = new EvidenceStore(root);
+    const store = new EvidenceStore(new LocalEvidenceStorage(root));
     const record = await store.upload(request(Buffer.from('proof')), driver, 'trip-1', 'pod');
 
     assert.equal(record.companyId, 'company-a');
     assert.equal(record.tripId, 'trip-1');
     assert.equal(record.uploadedBy, 'driver-1');
     assert.equal(record.evidenceType, 'pod');
+    assert.equal(record.storageKind, 'local');
 
     const own = await store.list('company-a', 'trip-1');
     const otherTenant = await store.list('company-b', 'trip-1');
@@ -51,7 +53,7 @@ test('stores evidence inside the authenticated tenant and trip scope', async () 
 test('rejects unsupported evidence content types', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fleetos-evidence-'));
   try {
-    const store = new EvidenceStore(root);
+    const store = new EvidenceStore(new LocalEvidenceStorage(root));
     await assert.rejects(
       store.upload(request(Buffer.from('x'), 'text/plain', 'notes.txt'), driver, 'trip-1', 'other'),
       /only JPEG, PNG, WEBP and PDF evidence is accepted/,
@@ -64,7 +66,7 @@ test('rejects unsupported evidence content types', async () => {
 test('rejects roles that cannot upload trip evidence', async () => {
   const root = await mkdtemp(join(tmpdir(), 'fleetos-evidence-'));
   try {
-    const store = new EvidenceStore(root);
+    const store = new EvidenceStore(new LocalEvidenceStorage(root));
     const principal: TenantPrincipal = { ...driver, sub: 'compliance-1', role: 'compliance' };
     await assert.rejects(
       store.upload(request(Buffer.from('proof')), principal, 'trip-1', 'pod'),
