@@ -3,22 +3,23 @@ import { normalizeTelemetry, TelemetryStore, type ProviderTelemetryPayload } fro
 import { registerConfiguredProviders } from './providers/config.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { ProviderContext } from './providers/types.js';
+import { TenantAuthorizer } from './tenantAuth.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
 const allowedOrigin = process.env.FLEETOS_WEB_ORIGIN?.trim() ?? '';
 const store = new TelemetryStore();
 const providerRegistry = new ProviderRegistry();
+const tenantAuthorizer = new TenantAuthorizer();
 registerConfiguredProviders(providerRegistry);
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
   if (!origin || !allowedOrigin || origin !== allowedOrigin) return;
-
   res.setHeader('access-control-allow-origin', origin);
   res.setHeader('vary', 'Origin');
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept');
+  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept,X-FleetOS-Company-Id');
   res.setHeader('access-control-max-age', '600');
 }
 
@@ -60,6 +61,11 @@ function requestHeaders(req: IncomingMessage): ProviderContext['headers'] {
   return Object.fromEntries(Object.entries(req.headers));
 }
 
+function requestedCompanyId(req: IncomingMessage): string {
+  const value = req.headers['x-fleetos-company-id'];
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
 const server = createServer(async (req, res) => {
   try {
     const method = req.method ?? 'GET';
@@ -76,6 +82,7 @@ const server = createServer(async (req, res) => {
         ok: true,
         service: 'fleetos-telemetry',
         providersConfigured: providerRegistry.list().length,
+        tenantReadPrincipalsConfigured: tenantAuthorizer.configuredCount,
       });
     }
 
@@ -86,7 +93,6 @@ const server = createServer(async (req, res) => {
     if (method === 'POST' && url.pathname === '/api/telemetry/ingest') {
       if (!ingestToken) return sendJson(req, res, 503, { error: 'ingest token is not configured' });
       if (bearerToken(req) !== ingestToken) return sendJson(req, res, 401, { error: 'unauthorized' });
-
       const raw = await readJson(req);
       const reading = normalizeTelemetry(raw as ProviderTelemetryPayload);
       store.upsert(reading);
@@ -99,12 +105,7 @@ const server = createServer(async (req, res) => {
       if (bearerToken(req) !== ingestToken) return sendJson(req, res, 401, { error: 'unauthorized' });
 
       const adapter = providerRegistry.resolve(providerId);
-      if (!adapter) {
-        return sendJson(req, res, 404, {
-          error: 'provider adapter is not configured',
-          providerId,
-        });
-      }
+      if (!adapter) return sendJson(req, res, 404, { error: 'provider adapter is not configured', providerId });
 
       const raw = await readJson(req);
       const context: ProviderContext = {
@@ -115,25 +116,31 @@ const server = createServer(async (req, res) => {
       };
       const normalized = adapter.toTelemetry(raw, context).map((reading) => normalizeTelemetry(reading));
       normalized.forEach((reading) => store.upsert(reading));
-
-      return sendJson(req, res, 202, {
-        accepted: true,
-        providerId,
-        count: normalized.length,
-        readings: normalized,
-      });
+      return sendJson(req, res, 202, { accepted: true, providerId, count: normalized.length, readings: normalized });
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
-      return sendJson(req, res, 200, { vehicles: store.list(), generatedAt: new Date().toISOString() });
+      const principal = tenantAuthorizer.authenticate(req);
+      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized' });
+      const requested = requestedCompanyId(req);
+      if (requested && requested !== principal.companyId) return sendJson(req, res, 403, { error: 'tenant scope mismatch' });
+      return sendJson(req, res, 200, {
+        companyId: principal.companyId,
+        vehicles: store.list(principal.companyId),
+        generatedAt: new Date().toISOString(),
+      });
     }
 
     if (method === 'GET' && url.pathname.startsWith('/api/telemetry/live/')) {
+      const principal = tenantAuthorizer.authenticate(req);
+      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized' });
+      const requested = requestedCompanyId(req);
+      if (requested && requested !== principal.companyId) return sendJson(req, res, 403, { error: 'tenant scope mismatch' });
       const vehicleId = decodeURIComponent(url.pathname.slice('/api/telemetry/live/'.length));
-      const reading = store.get(vehicleId);
+      const reading = store.get(principal.companyId, vehicleId);
       return reading
         ? sendJson(req, res, 200, reading)
-        : sendJson(req, res, 404, { error: 'no telemetry available for vehicle' });
+        : sendJson(req, res, 404, { error: 'no telemetry available for vehicle in this tenant' });
     }
 
     return sendJson(req, res, 404, { error: 'not found' });
