@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { normalizeTelemetry, TelemetryStore, type ProviderTelemetryPayload } from './telemetry.js';
+import { createTelemetryRepository } from './telemetryRepository.js';
 import { registerConfiguredProviders } from './providers/config.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { ProviderContext } from './providers/types.js';
@@ -9,6 +10,7 @@ const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
 const allowedOrigin = process.env.FLEETOS_WEB_ORIGIN?.trim() ?? '';
 const store = new TelemetryStore();
+const historyRepository = createTelemetryRepository();
 const providerRegistry = new ProviderRegistry();
 const tenantAuthorizer = new TenantAuthorizer();
 registerConfiguredProviders(providerRegistry);
@@ -66,6 +68,19 @@ function requestedCompanyId(req: IncomingMessage): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
+function authorizeTenant(req: IncomingMessage): ReturnType<TenantAuthorizer['authenticate']> {
+  const principal = tenantAuthorizer.authenticate(req);
+  if (!principal) return null;
+  const requested = requestedCompanyId(req);
+  if (requested && requested !== principal.companyId) return null;
+  return principal;
+}
+
+async function persistReading(reading: ReturnType<typeof normalizeTelemetry>): Promise<void> {
+  store.upsert(reading);
+  await historyRepository.append(reading);
+}
+
 const server = createServer(async (req, res) => {
   try {
     const method = req.method ?? 'GET';
@@ -83,6 +98,8 @@ const server = createServer(async (req, res) => {
         service: 'fleetos-telemetry',
         providersConfigured: providerRegistry.list().length,
         tenantReadPrincipalsConfigured: tenantAuthorizer.configuredCount,
+        jwtEnabled: tenantAuthorizer.jwtEnabled,
+        durableHistory: Boolean(process.env.FLEETOS_TELEMETRY_HISTORY_FILE?.trim()),
       });
     }
 
@@ -95,7 +112,7 @@ const server = createServer(async (req, res) => {
       if (bearerToken(req) !== ingestToken) return sendJson(req, res, 401, { error: 'unauthorized' });
       const raw = await readJson(req);
       const reading = normalizeTelemetry(raw as ProviderTelemetryPayload);
-      store.upsert(reading);
+      await persistReading(reading);
       return sendJson(req, res, 202, { accepted: true, reading });
     }
 
@@ -115,15 +132,13 @@ const server = createServer(async (req, res) => {
         headers: requestHeaders(req),
       };
       const normalized = adapter.toTelemetry(raw, context).map((reading) => normalizeTelemetry(reading));
-      normalized.forEach((reading) => store.upsert(reading));
+      for (const reading of normalized) await persistReading(reading);
       return sendJson(req, res, 202, { accepted: true, providerId, count: normalized.length, readings: normalized });
     }
 
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
-      const principal = tenantAuthorizer.authenticate(req);
-      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized' });
-      const requested = requestedCompanyId(req);
-      if (requested && requested !== principal.companyId) return sendJson(req, res, 403, { error: 'tenant scope mismatch' });
+      const principal = authorizeTenant(req);
+      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
       return sendJson(req, res, 200, {
         companyId: principal.companyId,
         vehicles: store.list(principal.companyId),
@@ -132,15 +147,26 @@ const server = createServer(async (req, res) => {
     }
 
     if (method === 'GET' && url.pathname.startsWith('/api/telemetry/live/')) {
-      const principal = tenantAuthorizer.authenticate(req);
-      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized' });
-      const requested = requestedCompanyId(req);
-      if (requested && requested !== principal.companyId) return sendJson(req, res, 403, { error: 'tenant scope mismatch' });
+      const principal = authorizeTenant(req);
+      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
       const vehicleId = decodeURIComponent(url.pathname.slice('/api/telemetry/live/'.length));
       const reading = store.get(principal.companyId, vehicleId);
       return reading
         ? sendJson(req, res, 200, reading)
         : sendJson(req, res, 404, { error: 'no telemetry available for vehicle in this tenant' });
+    }
+
+    if (method === 'GET' && url.pathname === '/api/telemetry/history') {
+      const principal = authorizeTenant(req);
+      if (!principal) return sendJson(req, res, 401, { error: 'unauthorized or tenant scope mismatch' });
+      const rows = await historyRepository.history({
+        companyId: principal.companyId,
+        vehicleId: url.searchParams.get('vehicleId')?.trim() || undefined,
+        from: url.searchParams.get('from')?.trim() || undefined,
+        to: url.searchParams.get('to')?.trim() || undefined,
+        limit: Number(url.searchParams.get('limit') ?? 500),
+      });
+      return sendJson(req, res, 200, { companyId: principal.companyId, readings: rows, count: rows.length });
     }
 
     return sendJson(req, res, 404, { error: 'not found' });
