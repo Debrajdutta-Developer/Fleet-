@@ -1,4 +1,4 @@
-import { getSessionToken } from '../auth/session';
+import { getFleetAccessToken } from '../auth/runtimeSession';
 
 const configuredBase = (import.meta.env.VITE_TELEMETRY_API_URL as string | undefined)?.trim() ?? '';
 const API_BASE = configuredBase.replace(/\/$/, '');
@@ -19,7 +19,7 @@ export interface TripEvidenceRecord {
 }
 
 function headers(companyId: string): HeadersInit {
-  const token = getSessionToken();
+  const token = getFleetAccessToken();
   if (!token) throw new Error('Secure sign-in is required before uploading trip evidence');
   return {
     authorization: `Bearer ${token}`,
@@ -34,7 +34,7 @@ export async function uploadTripEvidence(companyId: string, tripId: string, type
     headers: { ...headers(companyId), 'content-type': file.type, 'x-file-name': file.name },
     body: file,
   });
-  const payload = await response.json().catch(() => ({})) as { evidence?: TripEvidenceRecord; error?: string };
+  const payload = (await response.json().catch(() => ({}))) as { evidence?: TripEvidenceRecord; error?: string };
   if (!response.ok || !payload.evidence) throw new Error(payload.error || `Evidence upload failed (${response.status})`);
   return payload.evidence;
 }
@@ -44,7 +44,7 @@ export async function listTripEvidence(companyId: string, tripId: string): Promi
     method: 'GET',
     headers: headers(companyId),
   });
-  const payload = await response.json().catch(() => ({})) as { evidence?: TripEvidenceRecord[]; error?: string };
+  const payload = (await response.json().catch(() => ({}))) as { evidence?: TripEvidenceRecord[]; error?: string };
   if (!response.ok) throw new Error(payload.error || `Evidence lookup failed (${response.status})`);
   return payload.evidence ?? [];
 }
