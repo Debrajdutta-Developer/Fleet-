@@ -236,7 +236,7 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
-  const [isLiveSimulating, setIsLiveSimulating] = useState<boolean>(true);
+  const [isLiveSimulating, setIsLiveSimulating] = useState<boolean>(() => import.meta.env.VITE_ENABLE_DEMO_TELEMETRY === 'true');
 
   // Sync to local storage
   useEffect(() => {
@@ -346,7 +346,7 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     showToast('info', 'Role Switched', `Active operator role changed to ${role.replace('_', ' ').toUpperCase()}`);
   };
 
-  // Telemetry real-time movement ticker
+  // Demo-only movement ticker. Production telemetry stays provider-authoritative unless explicitly enabled.
   useEffect(() => {
     if (!isLiveSimulating) return;
 
@@ -412,7 +412,8 @@ export const FleetProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (vehicle.status === 'registration' && newStatus === 'active') {
       const hasVerifiedDocs = complianceDocs.some((d) => d.vehicleId === vehicleId && d.verificationStatus === 'verified');
       if (!hasVerifiedDocs) {
-        showToast('warning', 'Compliance Gate', 'Vehicle requires at least one verified inspection or PUC certificate before activation.');
+        showToast('warning', 'Compliance Gate', 'Vehicle requires at least one verified compliance document before activation.');
+        return { success: false, error: 'Verified compliance document required before activation' };
       }
     }
 
