@@ -1,6 +1,6 @@
 import { getFleetAccessToken } from '../auth/runtimeSession';
 
-export type LiveMotionState = 'moving' | 'idling' | 'stopped' | 'offline';
+export type LiveMotionState = 'moving' | 'idling' | 'stopped' | 'offline' | 'unknown';
 export type LiveFreshness = 'live' | 'recent' | 'stale' | 'offline';
 
 export interface LiveTelemetryReading {
