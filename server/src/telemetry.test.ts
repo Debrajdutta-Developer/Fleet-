@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeTelemetry, TelemetryStore } from './telemetry.js';
+import { motionFrom, normalizeTelemetry, TelemetryStore } from './telemetry.js';
 
 function reading(companyId: string, vehicleId: string, latitude: number) {
   return normalizeTelemetry({
@@ -38,4 +38,13 @@ test('rejects impossible coordinates instead of clamping them', () => {
     companyId: 'company-a', provider: 'x', deviceId: 'd', vehicleId: 'v',
     recordedAt: '2026-09-12T02:25:00.000Z', latitude: 120, longitude: 88,
   }), /latitude is outside valid range/);
+});
+
+test('does not label a vehicle stopped when speed and ignition evidence are both missing', () => {
+  assert.equal(motionFrom({}, 'live'), 'unknown');
+  assert.equal(motionFrom({ speedKph: 0 }, 'live'), 'stopped');
+  assert.equal(motionFrom({ ignitionOn: false }, 'live'), 'stopped');
+  assert.equal(motionFrom({ ignitionOn: true }, 'live'), 'idling');
+  assert.equal(motionFrom({ speedKph: 12 }, 'live'), 'moving');
+  assert.equal(motionFrom({}, 'offline'), 'offline');
 });
