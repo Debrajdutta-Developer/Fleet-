@@ -8,7 +8,7 @@ interface LiveTelemetryState {
   lastUpdatedAt: string | null;
 }
 
-export function useLiveTelemetry(pollMs = 5000): LiveTelemetryState & {
+export function useLiveTelemetry(companyId: string, pollMs = 5000): LiveTelemetryState & {
   byVehicleId: Map<string, LiveTelemetryReading>;
 } {
   const [state, setState] = useState<LiveTelemetryState>({
@@ -19,6 +19,11 @@ export function useLiveTelemetry(pollMs = 5000): LiveTelemetryState & {
   });
 
   useEffect(() => {
+    if (!companyId) {
+      setState({ readings: [], loading: false, error: 'No active company selected', lastUpdatedAt: null });
+      return;
+    }
+
     let disposed = false;
     let timer: number | undefined;
     let controller: AbortController | null = null;
@@ -28,7 +33,7 @@ export function useLiveTelemetry(pollMs = 5000): LiveTelemetryState & {
       controller = new AbortController();
 
       try {
-        const payload = await fetchLiveTelemetry(controller.signal);
+        const payload = await fetchLiveTelemetry(companyId, controller.signal);
         if (!disposed) {
           setState({
             readings: payload.vehicles,
@@ -57,7 +62,7 @@ export function useLiveTelemetry(pollMs = 5000): LiveTelemetryState & {
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [pollMs]);
+  }, [companyId, pollMs]);
 
   const byVehicleId = useMemo(
     () => new Map(state.readings.map((reading) => [reading.vehicleId, reading])),
