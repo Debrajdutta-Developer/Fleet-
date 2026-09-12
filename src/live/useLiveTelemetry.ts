@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useFleet } from '../context/FleetContext';
 import { fetchLiveTelemetry, type LiveTelemetryReading } from './telemetryClient';
 
 interface LiveTelemetryState {
@@ -8,9 +9,11 @@ interface LiveTelemetryState {
   lastUpdatedAt: string | null;
 }
 
-export function useLiveTelemetry(companyId: string, pollMs = 5000): LiveTelemetryState & {
+export function useLiveTelemetry(pollMs = 5000): LiveTelemetryState & {
   byVehicleId: Map<string, LiveTelemetryReading>;
 } {
+  const { currentCompany } = useFleet();
+  const companyId = currentCompany.id;
   const [state, setState] = useState<LiveTelemetryState>({
     readings: [],
     loading: true,
