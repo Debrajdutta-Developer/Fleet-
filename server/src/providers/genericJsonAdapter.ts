@@ -29,6 +29,7 @@ export interface FieldMap {
 
 export interface GenericJsonProviderConfig {
   providerId: string;
+  companyId: string;
   kind?: Exclude<IntegrationKind, 'fastag' | 'government_authority'>;
   map: FieldMap;
   arrayPath?: string;
@@ -85,6 +86,7 @@ export class GenericJsonTelemetryAdapter implements ProviderAdapter {
   readonly authoritative = false;
 
   constructor(private readonly config: GenericJsonProviderConfig) {
+    if (!config.companyId?.trim()) throw new Error('provider mapping requires companyId');
     this.id = `generic:${config.providerId}`;
     this.kind = config.kind ?? 'gps';
   }
@@ -106,6 +108,7 @@ export class GenericJsonTelemetryAdapter implements ProviderAdapter {
       }
 
       return {
+        companyId: this.config.companyId.trim(),
         provider: context.providerId,
         deviceId,
         vehicleId,
