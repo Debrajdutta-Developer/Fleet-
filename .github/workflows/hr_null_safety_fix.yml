@@ -2,16 +2,16 @@ name: One-time HR null safety fixer
 
 on:
   push:
-    branches: [complete/fleet-web-foundation]
+    branches:
+      - complete/fleet-web-foundation
     paths:
-      - '.github/workflows/hr_null_safety_fix.yml'
+      - .github/workflows/hr_null_safety_fix.yml
 
 permissions:
   contents: write
 
 jobs:
   apply-fix:
-    if: github.event.head_commit.message == 'chore: run one-time HR null safety fixer'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout working branch
@@ -20,8 +20,8 @@ jobs:
           ref: complete/fleet-web-foundation
 
       - name: Apply strict null-safety fixes
-        shell: python
         run: |
+          python3 <<'PY'
           from pathlib import Path
 
           replacements = {
@@ -48,6 +48,7 @@ jobs:
                       raise SystemExit(f'Expected text not found in {filename}: {old}')
                   text = text.replace(old, new, 1)
               path.write_text(text)
+          PY
 
       - name: Commit fixes
         run: |
