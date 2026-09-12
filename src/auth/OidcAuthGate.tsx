@@ -1,0 +1,69 @@
+import React, { useEffect, useState } from 'react';
+import { LogIn, ShieldCheck } from 'lucide-react';
+import { beginOidcSignIn, oidcConfigured, restoreOidcSession } from './oidcSession';
+
+type AuthState = 'loading' | 'authenticated' | 'unauthenticated' | 'error';
+
+export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const [state, setState] = useState<AuthState>(oidcConfigured ? 'loading' : 'authenticated');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!oidcConfigured) return;
+    let active = true;
+    restoreOidcSession()
+      .then((user) => {
+        if (active) setState(user ? 'authenticated' : 'unauthenticated');
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setError(reason instanceof Error ? reason.message : 'Sign-in could not be completed');
+        setState('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (state === 'authenticated') return <>{children}</>;
+
+  return (
+    <main className="min-h-screen bg-slate-950 px-4 py-10 text-white flex items-center justify-center">
+      <section className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 p-7 shadow-2xl">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/15 text-teal-300">
+          <ShieldCheck className="h-6 w-6" />
+        </div>
+        <h1 className="mt-5 text-2xl font-bold">FleetOS Secure Sign-In</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-400">
+          Company data, live vehicle telemetry, finance and driver evidence require a verified organization session.
+        </p>
+
+        {state === 'loading' && <p className="mt-6 text-sm text-slate-300">Checking your session…</p>}
+
+        {state === 'error' && (
+          <div className="mt-5 rounded-xl border border-red-900/60 bg-red-950/40 p-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        {(state === 'unauthenticated' || state === 'error') && (
+          <button
+            type="button"
+            onClick={() => {
+              setError('');
+              setState('loading');
+              beginOidcSignIn().catch((reason: unknown) => {
+                setError(reason instanceof Error ? reason.message : 'Unable to start sign-in');
+                setState('error');
+              });
+            }}
+            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-teal-400"
+          >
+            <LogIn className="h-4 w-4" />
+            Sign in to FleetOS
+          </button>
+        )}
+      </section>
+    </main>
+  );
+};
