@@ -17,6 +17,8 @@ function present(name: string): boolean {
 export function getDeploymentReadiness(): DeploymentReadiness {
   const oidc = present('FLEETOS_OIDC_JWKS_URL') && present('FLEETOS_OIDC_ISSUER') && present('FLEETOS_OIDC_AUDIENCE');
   const postgres = present('DATABASE_URL');
+  const nativeAuth = postgres && present('FLEETOS_JWT_SECRET');
+  const identity = oidc || nativeAuth;
   const s3 = present('FLEETOS_EVIDENCE_S3_BUCKET') && present('FLEETOS_EVIDENCE_S3_REGION');
   const providerMappings = present('FLEETOS_PROVIDER_MAPPINGS_JSON');
   const webOrigin = present('FLEETOS_WEB_ORIGIN');
@@ -24,8 +26,12 @@ export function getDeploymentReadiness(): DeploymentReadiness {
 
   const checks: ReadinessCheck[] = [
     {
-      key: 'oidc', ok: oidc, requiredForProduction: true,
-      detail: oidc ? 'External OIDC/JWKS verification configured.' : 'Configure FLEETOS_OIDC_JWKS_URL, FLEETOS_OIDC_ISSUER and FLEETOS_OIDC_AUDIENCE.',
+      key: 'identity', ok: identity, requiredForProduction: true,
+      detail: oidc
+        ? 'External OIDC/JWKS verification configured.'
+        : nativeAuth
+          ? 'FleetOS native PostgreSQL/JWT authentication configured.'
+          : 'Configure external OIDC or native auth with DATABASE_URL and FLEETOS_JWT_SECRET.',
     },
     {
       key: 'postgres', ok: postgres, requiredForProduction: true,
