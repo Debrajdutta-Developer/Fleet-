@@ -10,6 +10,7 @@ import { EvidenceStore } from './evidence.js';
 import { createSettlementRepository, normalizeSettlementTerms } from './settlementRepository.js';
 import { createTripAccessRepository, normalizeTripAssignment } from './tripAccessRepository.js';
 import { getDeploymentReadiness } from './deploymentReadiness.js';
+import { NativeAuthService } from './nativeAuth.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
@@ -21,6 +22,7 @@ const tripAccessRepository = createTripAccessRepository();
 const providerRegistry = new ProviderRegistry();
 const tenantAuthorizer = new TenantAuthorizer();
 const evidenceStore = new EvidenceStore();
+const nativeAuth = new NativeAuthService();
 registerConfiguredProviders(providerRegistry);
 
 const FINANCE_ROLES = new Set<TenantRole>(['owner', 'manager', 'accountant']);
@@ -120,6 +122,7 @@ const server = createServer(async (req, res) => {
         tenantReadPrincipalsConfigured: tenantAuthorizer.configuredCount,
         jwtEnabled: tenantAuthorizer.jwtEnabled,
         oidcEnabled: tenantAuthorizer.oidcEnabled,
+        nativeAuthEnabled: nativeAuth.enabled,
         telemetryHistoryRepository: historyRepository.kind,
         settlementRepository: settlementRepository.kind,
         tripAccessRepository: tripAccessRepository.kind,
@@ -134,6 +137,36 @@ const server = createServer(async (req, res) => {
 
     if (method === 'GET' && url.pathname === '/api/providers') {
       return sendJson(req, res, 200, { providers: providerRegistry.list() });
+    }
+
+    if (method === 'POST' && url.pathname === '/api/auth/login') {
+      try {
+        const session = await nativeAuth.login(await readJson(req));
+        return sendJson(req, res, 200, session);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'sign-in failed';
+        const unavailable = message.includes('not configured');
+        return sendJson(req, res, unavailable ? 503 : 401, { error: message });
+      }
+    }
+
+    if (url.pathname === '/api/auth/users' && (method === 'GET' || method === 'POST')) {
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+
+      if (method === 'GET') {
+        if (authorization.principal.role !== 'owner' && authorization.principal.role !== 'manager') {
+          return sendJson(req, res, 403, { error: 'user directory requires owner or manager role' });
+        }
+        const users = await nativeAuth.listUsers(authorization.principal);
+        return sendJson(req, res, 200, { companyId: authorization.principal.companyId, users });
+      }
+
+      if (authorization.principal.role !== 'owner') {
+        return sendJson(req, res, 403, { error: 'only an owner can create FleetOS users' });
+      }
+      const user = await nativeAuth.createUser(await readJson(req), authorization.principal);
+      return sendJson(req, res, 201, { user });
     }
 
     if (method === 'GET' && url.pathname === '/api/me') {
@@ -329,6 +362,19 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, '0.0.0.0', () => {
-  console.log(`FleetOS telemetry server listening on ${port}`);
-});
+async function start(): Promise<void> {
+  try {
+    const created = await nativeAuth.bootstrapFromEnv();
+    if (created) console.log('FleetOS native auth bootstrap owner created');
+  } catch (error) {
+    console.error('FleetOS native auth bootstrap failed:', error);
+    process.exitCode = 1;
+    return;
+  }
+
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`FleetOS telemetry server listening on ${port}`);
+  });
+}
+
+void start();
