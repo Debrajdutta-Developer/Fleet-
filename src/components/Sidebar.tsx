@@ -10,9 +10,9 @@ import {
   Receipt,
   History,
   CreditCard,
-  Gauge
 } from 'lucide-react';
 import { useFleet } from '../context/FleetContext';
+import { allowedTabsForRole } from '../auth/roleAccess';
 
 export type ActiveTab =
   | 'dashboard'
@@ -31,7 +31,8 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { vehicles, trips, drivers, complianceDocs, currentCompany, employees, leaveRequests } = useFleet();
+  const { vehicles, trips, drivers, complianceDocs, currentCompany, currentUser, employees, leaveRequests } = useFleet();
+  const allowedTabs = allowedTabsForRole(currentUser.role);
 
   const activeVehiclesCount = vehicles.filter((v) => v.status === 'active' && !v.deletedAt).length;
   const inTransitTripsCount = trips.filter((t) => t.status === 'in_transit').length;
@@ -45,12 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   }).length;
 
   const navItems = [
-    {
-      id: 'dashboard' as ActiveTab,
-      label: 'Command Center',
-      icon: LayoutDashboard,
-      badge: null,
-    },
+    { id: 'dashboard' as ActiveTab, label: 'Command Center', icon: LayoutDashboard, badge: null },
     {
       id: 'vehicles' as ActiveTab,
       label: 'Fleet & Telemetry',
@@ -79,12 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       badge: pendingLeaves > 0 ? `${pendingLeaves} Leave` : `${employees.filter((e) => e.companyId === currentCompany.id && !e.deletedAt).length} Staff`,
       badgeColor: pendingLeaves > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
     },
-    {
-      id: 'maintenance' as ActiveTab,
-      label: 'Maintenance & Fuel',
-      icon: Wrench,
-      badge: null,
-    },
+    { id: 'maintenance' as ActiveTab, label: 'Maintenance & Fuel', icon: Wrench, badge: null },
     {
       id: 'compliance' as ActiveTab,
       label: 'Compliance Vault',
@@ -92,23 +83,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
       badge: expiringDocsCount > 0 ? `${expiringDocsCount} Alert` : null,
       badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
     },
-    {
-      id: 'billing' as ActiveTab,
-      label: 'Billing & Financials',
-      icon: Receipt,
-      badge: null,
-    },
-    {
-      id: 'audit' as ActiveTab,
-      label: 'Audit Trail & Logs',
-      icon: History,
-      badge: null,
-    },
-  ];
+    { id: 'billing' as ActiveTab, label: 'Billing & Financials', icon: Receipt, badge: null },
+    { id: 'audit' as ActiveTab, label: 'Audit Trail & Logs', icon: History, badge: null },
+  ].filter((item) => allowedTabs.has(item.id));
 
   return (
     <aside className="w-full md:w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col shrink-0">
-      {/* Navigation List */}
       <div className="p-3 space-y-1 flex-1 overflow-y-auto">
         <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
           Operations Platform
@@ -131,11 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
                 <span className="truncate">{item.label}</span>
               </div>
               {item.badge && (
-                <span
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    isActive ? 'bg-white/20 text-white' : item.badgeColor
-                  }`}
-                >
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : item.badgeColor}`}>
                   {item.badge}
                 </span>
               )}
@@ -144,35 +120,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         })}
       </div>
 
-      {/* FASTag / Toll Balance Mini Widget */}
-      <div className="p-4 m-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-xl">
-        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-          <span className="flex items-center space-x-1 font-medium">
-            <CreditCard className="h-3.5 w-3.5 text-teal-500" />
-            <span>FASTag Toll Pool</span>
-          </span>
-          <span className="font-semibold text-slate-700 dark:text-slate-200">
-            ${currentCompany.fastagBalance.toFixed(2)}
-          </span>
+      {allowedTabs.has('billing') && (
+        <div className="p-4 m-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-xl">
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+            <span className="flex items-center space-x-1 font-medium">
+              <CreditCard className="h-3.5 w-3.5 text-teal-500" />
+              <span>FASTag Toll Pool</span>
+            </span>
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
+              {currentCompany.currency || 'INR'} {currentCompany.fastagBalance.toFixed(2)}
+            </span>
+          </div>
+          <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+            <div
+              className={`h-full rounded-full transition-all ${currentCompany.fastagBalance < 500 ? 'bg-amber-500' : 'bg-teal-500'}`}
+              style={{ width: `${Math.min(100, (currentCompany.fastagBalance / 5000) * 100)}%` }}
+            />
+          </div>
+          <div className="flex justify-between items-center mt-2 text-[11px]">
+            <span className="text-slate-400">Status: Active</span>
+            <button onClick={() => setActiveTab('billing')} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+              Manage Tolls &rarr;
+            </button>
+          </div>
         </div>
-        <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
-          <div
-            className={`h-full rounded-full transition-all ${
-              currentCompany.fastagBalance < 500 ? 'bg-amber-500' : 'bg-teal-500'
-            }`}
-            style={{ width: `${Math.min(100, (currentCompany.fastagBalance / 5000) * 100)}%` }}
-          />
-        </div>
-        <div className="flex justify-between items-center mt-2 text-[11px]">
-          <span className="text-slate-400">Status: Active</span>
-          <button
-            onClick={() => setActiveTab('billing')}
-            className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-          >
-            Manage Tolls &rarr;
-          </button>
-        </div>
-      </div>
+      )}
     </aside>
   );
 };
