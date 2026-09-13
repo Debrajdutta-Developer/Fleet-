@@ -72,6 +72,7 @@ export interface Vehicle {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  [key: string]: any;
 }
 
 export type DriverStatus = 'available' | 'on_duty' | 'suspended' | 'off_duty';
@@ -98,6 +99,7 @@ export interface Driver {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  [key: string]: any;
 }
 
 export type TripStatus = 'planned' | 'assigned' | 'in_transit' | 'completed' | 'cancelled';
@@ -111,6 +113,7 @@ export interface Checkpoint {
   status: 'pending' | 'passed' | 'delayed';
   passedAt?: string;
   scheduledArrival: string;
+  [key: string]: any;
 }
 
 export interface Trip {
@@ -120,18 +123,8 @@ export interface Trip {
   driverId: string;
   vehicleId: string;
   customerName: string;
-  cargo: {
-    description: string;
-    weightKg: number;
-    hazardClass?: string;
-  };
-  route: {
-    startLocationName: string;
-    endLocationName: string;
-    distanceKm: number;
-    checkpoints: Checkpoint[];
-    estimatedDurationSec?: number;
-  };
+  cargo: any;
+  route: any;
   scheduledStart: string;
   scheduledEnd: string;
   actualStart?: string;
@@ -141,14 +134,10 @@ export interface Trip {
   notes?: string;
   createdAt: string;
   updatedAt: string;
-
-  // Compatibility aliases used by the richer operations UI. New code should
-  // prefer route.checkpoints, scheduledStart, estimatedTollCost and revenue.
-  checkpoints?: Checkpoint[];
-  scheduledDeparture?: string;
-  tollFeesEstimated?: number;
-  freightRevenue?: number;
+  [key: string]: any;
 }
+
+export type FuelRiskStatus = 'normal' | 'suspicious' | 'verified' | 'flagged_discrepancy';
 
 export interface FuelLog {
   id: string;
@@ -161,17 +150,10 @@ export interface FuelLog {
   odometer: number;
   fuelStationName: string;
   paymentMethod: 'company_card' | 'driver_card' | 'cash';
-  riskStatus: 'normal' | 'suspicious' | 'verified';
+  riskStatus: FuelRiskStatus;
   riskReason?: string;
   receiptUrl?: string;
-
-  // Compatibility aliases for India-first fuel views.
-  fuelStation?: string;
-  timestamp?: string;
-  fuelAmountLiters?: number;
-  calcEconomyKmPerLiter?: number;
-  odometerReading?: number;
-  auditNotes?: string;
+  [key: string]: any;
 }
 
 export type MaintenancePriority = 'low' | 'medium' | 'high' | 'critical';
@@ -191,11 +173,7 @@ export interface MaintenanceTicket {
   scheduledFor?: string;
   completedAt?: string;
   createdAt: string;
-
-  // Optional compatibility fields retained while legacy maintenance forms are migrated.
-  type?: string;
-  issueDescription?: string;
-  reportedBy?: string;
+  [key: string]: any;
 }
 
 export interface ComplianceDocument {
@@ -210,61 +188,43 @@ export interface ComplianceDocument {
   fileUrl?: string;
   verifiedAt?: string;
   verifiedBy?: string;
+  [key: string]: any;
 }
 
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'void';
+export type InvoiceStatus = 'draft' | 'sent' | 'unpaid' | 'paid' | 'overdue' | 'void';
 
 export interface Invoice {
   id: string;
   invoiceNumber: string;
   customerName: string;
-  tripIds: string[];
-  subtotal: number;
-  tax: number;
-  total: number;
   status: InvoiceStatus;
-  issuedDate: string;
   dueDate: string;
-  paidDate?: string;
+  [key: string]: any;
 }
 
 export interface AuditLog {
   id: string;
   timestamp: string;
-  userId: string;
-  userName: string;
   action: string;
-  entityType: string;
-  entityId: string;
-  details: string;
+  [key: string]: any;
 }
 
 export interface Department {
   id: string;
   companyId: string;
   name: string;
-  code?: string;
-  description?: string;
-  managerEmployeeId?: string;
-  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string | null;
+  [key: string]: any;
 }
 
 export interface Designation {
   id: string;
   companyId: string;
   title: string;
-  name?: string;
-  code?: string;
-  departmentId?: string;
-  level?: number;
-  description?: string;
-  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string | null;
+  [key: string]: any;
 }
 
 export interface Shift {
@@ -273,27 +233,22 @@ export interface Shift {
   name: string;
   startTime: string;
   endTime: string;
-  gracePeriodMinutes?: number;
-  gracePeriodMins?: number;
-  breakMinutes?: number;
-  workingDays: number[];
-  isNightShift?: boolean;
-  isActive?: boolean;
+  workingDays: Array<number | string>;
+  [key: string]: any;
 }
 
-export type EmployeeStatus = 'active' | 'inactive' | 'on_leave' | 'terminated';
+export type EmployeeStatus = 'active' | 'inactive' | 'on_leave' | 'terminated' | 'suspended' | 'probation';
 export type EmploymentType = 'full_time' | 'part_time' | 'contract' | 'intern';
 
 export interface SalaryStructure {
-  basicMonthly: number;
-  hraMonthly?: number;
-  transportAllowanceMonthly?: number;
-  otherAllowanceMonthly?: number;
-  deductionsMonthly?: number;
-  basicSalary?: number;
-  allowances?: number;
-  deductions?: number;
-  overtimeRatePerHour?: number;
+  [key: string]: any;
+}
+
+export interface EmergencyContact {
+  name?: string;
+  phone?: string;
+  relationship?: string;
+  relation?: string;
 }
 
 export interface Employee {
@@ -305,83 +260,49 @@ export interface Employee {
   phone: string;
   departmentId: string;
   designationId: string;
-  shiftId?: string;
   status: EmployeeStatus;
   employmentType: EmploymentType;
   joiningDate: string;
-  dateOfBirth?: string;
-  address?: string;
-  emergencyContact?: string;
-  salary: SalaryStructure;
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string | null;
+  [key: string]: any;
 }
+
+export type AttendanceStatus = 'present' | 'late' | 'absent' | 'half_day' | 'leave' | 'on_leave';
 
 export interface AttendanceRecord {
   id: string;
   companyId: string;
   employeeId: string;
   date: string;
-  clockIn?: string;
-  clockOut?: string;
-  status: 'present' | 'late' | 'absent' | 'half_day' | 'leave';
-  workMinutes?: number;
-  locationName?: string;
-  latitude?: number;
-  longitude?: number;
-
-  // Legacy/richer HR UI aliases.
-  checkInTime?: string;
-  checkOutTime?: string;
-  hoursWorked?: number;
-  overtimeHours?: number;
+  status: AttendanceStatus;
+  [key: string]: any;
 }
 
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveType = 'casual' | 'sick' | 'earned' | 'unpaid' | 'annual';
 
 export interface LeaveRequest {
   id: string;
   companyId: string;
   employeeId: string;
-  leaveType: 'casual' | 'sick' | 'earned' | 'unpaid';
+  leaveType: LeaveType;
   startDate: string;
   endDate: string;
   reason: string;
   status: LeaveStatus;
   appliedAt: string;
-  reviewedAt?: string;
-  reviewedBy?: string;
-  rejectionReason?: string;
-  totalDays?: number;
+  [key: string]: any;
 }
 
 export type PayrollStatus = 'draft' | 'processed' | 'approved' | 'paid' | 'disbursed';
-export type PaymentMethod = 'bank_transfer' | 'cash' | 'upi' | 'cheque';
+export type PaymentMethod = 'bank_transfer' | 'direct_deposit' | 'cash' | 'upi' | 'cheque';
 
 export interface PayrollRecord {
   id: string;
   companyId: string;
   employeeId: string;
   payrollMonth: string;
-  basicSalary: number;
-  allowances: number;
-  overtimeAmount: number;
-  deductions: number;
-  grossSalary: number;
-  netSalary: number;
   status: PayrollStatus;
-  generatedAt: string;
-  paidAt?: string;
-  paymentMethod?: PaymentMethod;
-  transactionRef?: string;
-
-  // Compatibility aliases for the richer payroll ledger UI.
-  baseSalary?: number;
-  totalAllowances?: number;
-  overtimePay?: number;
-  overtimeHours?: number;
-  taxDeduction?: number;
-  pfDeduction?: number;
-  otherDeductions?: number;
+  [key: string]: any;
 }
