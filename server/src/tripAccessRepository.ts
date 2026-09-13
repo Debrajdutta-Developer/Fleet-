@@ -15,7 +15,9 @@ export interface TripAccessRepository {
   readonly kind: 'memory' | 'postgres';
   get(companyId: string, tripId: string): Promise<TripAssignment | null>;
   upsert(assignment: TripAssignment): Promise<TripAssignment>;
+  listForPrincipal(principal: TenantPrincipal): Promise<TripAssignment[]>;
   canAccess(principal: TenantPrincipal, tripId: string): Promise<boolean>;
+  canAccessVehicle(principal: TenantPrincipal, vehicleId: string): Promise<boolean>;
 }
 
 const BROAD_TRIP_ROLES = new Set<TenantPrincipal['role']>([
@@ -61,6 +63,18 @@ function subjectCanAccess(principal: TenantPrincipal, assignment: TripAssignment
   return false;
 }
 
+function rowToAssignment(row: Record<string, unknown>): TripAssignment {
+  return {
+    companyId: String(row.company_id),
+    tripId: String(row.trip_id),
+    vehicleId: typeof row.vehicle_id === 'string' ? row.vehicle_id : undefined,
+    driverSubject: typeof row.driver_subject === 'string' ? row.driver_subject : undefined,
+    khalashiSubject: typeof row.khalashi_subject === 'string' ? row.khalashi_subject : undefined,
+    updatedBy: String(row.updated_by),
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  };
+}
+
 export class InMemoryTripAccessRepository implements TripAccessRepository {
   readonly kind = 'memory' as const;
   private readonly rows = new Map<string, TripAssignment>();
@@ -78,9 +92,23 @@ export class InMemoryTripAccessRepository implements TripAccessRepository {
     return assignment;
   }
 
+  async listForPrincipal(principal: TenantPrincipal): Promise<TripAssignment[]> {
+    const companyRows = [...this.rows.values()].filter((row) => row.companyId === principal.companyId);
+    if (BROAD_TRIP_ROLES.has(principal.role)) return companyRows;
+    if (principal.role === 'driver') return companyRows.filter((row) => row.driverSubject === principal.sub);
+    if (principal.role === 'khalashi') return companyRows.filter((row) => row.khalashiSubject === principal.sub);
+    return [];
+  }
+
   async canAccess(principal: TenantPrincipal, tripId: string): Promise<boolean> {
     const assignment = await this.get(principal.companyId, tripId);
     return subjectCanAccess(principal, assignment);
+  }
+
+  async canAccessVehicle(principal: TenantPrincipal, vehicleId: string): Promise<boolean> {
+    if (BROAD_TRIP_ROLES.has(principal.role)) return true;
+    const assignments = await this.listForPrincipal(principal);
+    return assignments.some((row) => row.vehicleId === vehicleId);
   }
 }
 
@@ -110,6 +138,8 @@ export class PostgresTripAccessRepository implements TripAccessRepository {
           ON fleetos_trip_assignments (company_id, driver_subject);
         CREATE INDEX IF NOT EXISTS fleetos_trip_assignments_khalashi_idx
           ON fleetos_trip_assignments (company_id, khalashi_subject);
+        CREATE INDEX IF NOT EXISTS fleetos_trip_assignments_vehicle_idx
+          ON fleetos_trip_assignments (company_id, vehicle_id);
       `).then(() => undefined);
     }
     await this.schemaReady;
@@ -123,17 +153,7 @@ export class PostgresTripAccessRepository implements TripAccessRepository {
        WHERE company_id = $1 AND trip_id = $2`,
       [companyId, tripId],
     );
-    const row = result.rows[0];
-    if (!row) return null;
-    return {
-      companyId: row.company_id,
-      tripId: row.trip_id,
-      vehicleId: row.vehicle_id ?? undefined,
-      driverSubject: row.driver_subject ?? undefined,
-      khalashiSubject: row.khalashi_subject ?? undefined,
-      updatedBy: row.updated_by,
-      updatedAt: new Date(row.updated_at).toISOString(),
-    };
+    return result.rows[0] ? rowToAssignment(result.rows[0]) : null;
   }
 
   async upsert(assignment: TripAssignment): Promise<TripAssignment> {
@@ -161,10 +181,39 @@ export class PostgresTripAccessRepository implements TripAccessRepository {
     return assignment;
   }
 
+  async listForPrincipal(principal: TenantPrincipal): Promise<TripAssignment[]> {
+    await this.ensureSchema();
+    if (BROAD_TRIP_ROLES.has(principal.role)) {
+      const result = await this.pool.query(
+        `SELECT company_id, trip_id, vehicle_id, driver_subject, khalashi_subject, updated_by, updated_at
+         FROM fleetos_trip_assignments WHERE company_id = $1 ORDER BY updated_at DESC`,
+        [principal.companyId],
+      );
+      return result.rows.map(rowToAssignment);
+    }
+
+    if (principal.role !== 'driver' && principal.role !== 'khalashi') return [];
+    const column = principal.role === 'driver' ? 'driver_subject' : 'khalashi_subject';
+    const result = await this.pool.query(
+      `SELECT company_id, trip_id, vehicle_id, driver_subject, khalashi_subject, updated_by, updated_at
+       FROM fleetos_trip_assignments
+       WHERE company_id = $1 AND ${column} = $2
+       ORDER BY updated_at DESC`,
+      [principal.companyId, principal.sub],
+    );
+    return result.rows.map(rowToAssignment);
+  }
+
   async canAccess(principal: TenantPrincipal, tripId: string): Promise<boolean> {
     if (BROAD_TRIP_ROLES.has(principal.role)) return true;
     const assignment = await this.get(principal.companyId, tripId);
     return subjectCanAccess(principal, assignment);
+  }
+
+  async canAccessVehicle(principal: TenantPrincipal, vehicleId: string): Promise<boolean> {
+    if (BROAD_TRIP_ROLES.has(principal.role)) return true;
+    const assignments = await this.listForPrincipal(principal);
+    return assignments.some((row) => row.vehicleId === vehicleId);
   }
 }
 
