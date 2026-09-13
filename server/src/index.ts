@@ -8,6 +8,7 @@ import { TenantAuthorizer, type TenantRole } from './tenantAuth.js';
 import { authorizeRoleRequest, authorizeTenantRequest } from './httpAuthorization.js';
 import { EvidenceStore } from './evidence.js';
 import { createSettlementRepository, normalizeSettlementTerms } from './settlementRepository.js';
+import { createTripAccessRepository, normalizeTripAssignment } from './tripAccessRepository.js';
 import { getDeploymentReadiness } from './deploymentReadiness.js';
 
 const port = Number(process.env.PORT ?? 8787);
@@ -16,12 +17,14 @@ const allowedOrigin = process.env.FLEETOS_WEB_ORIGIN?.trim() ?? '';
 const store = new TelemetryStore();
 const historyRepository = createTelemetryRepository();
 const settlementRepository = createSettlementRepository();
+const tripAccessRepository = createTripAccessRepository();
 const providerRegistry = new ProviderRegistry();
 const tenantAuthorizer = new TenantAuthorizer();
 const evidenceStore = new EvidenceStore();
 registerConfiguredProviders(providerRegistry);
 
 const FINANCE_ROLES = new Set<TenantRole>(['owner', 'manager', 'accountant']);
+const ASSIGNMENT_ROLES = new Set<TenantRole>(['owner', 'manager', 'dispatcher']);
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
@@ -75,6 +78,15 @@ function settlementVehicleIdFromPath(pathname: string): string | undefined {
   return decodeURIComponent(encoded).trim() || undefined;
 }
 
+function tripIdFromAssignmentPath(pathname: string): string | undefined {
+  const prefix = '/api/trips/';
+  const suffix = '/assignment';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
+  const encoded = pathname.slice(prefix.length, -suffix.length).replace(/^\/+|\/+$/g, '');
+  if (!encoded || encoded.includes('/')) return undefined;
+  return decodeURIComponent(encoded).trim() || undefined;
+}
+
 function requestHeaders(req: IncomingMessage): ProviderContext['headers'] {
   return Object.fromEntries(Object.entries(req.headers));
 }
@@ -105,6 +117,7 @@ const server = createServer(async (req, res) => {
         oidcEnabled: tenantAuthorizer.oidcEnabled,
         telemetryHistoryRepository: historyRepository.kind,
         settlementRepository: settlementRepository.kind,
+        tripAccessRepository: tripAccessRepository.kind,
         evidenceStorage: evidenceStore.storageKind,
       });
     }
@@ -116,6 +129,13 @@ const server = createServer(async (req, res) => {
 
     if (method === 'GET' && url.pathname === '/api/providers') {
       return sendJson(req, res, 200, { providers: providerRegistry.list() });
+    }
+
+    if (method === 'GET' && url.pathname === '/api/me') {
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+      const { sub, companyId, role } = authorization.principal;
+      return sendJson(req, res, 200, { principal: { sub, companyId, role } });
     }
 
     if (method === 'POST' && url.pathname === '/api/telemetry/ingest') {
@@ -215,12 +235,50 @@ const server = createServer(async (req, res) => {
       return sendJson(req, res, 200, { terms: saved });
     }
 
+    const assignmentTripId = tripIdFromAssignmentPath(url.pathname);
+    if (assignmentTripId && (method === 'GET' || method === 'PUT')) {
+      const authorization = await authorizeRoleRequest(
+        req,
+        tenantAuthorizer,
+        ASSIGNMENT_ROLES,
+        'trip assignment access requires owner, manager or dispatcher role',
+      );
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+
+      if (method === 'GET') {
+        const assignment = await tripAccessRepository.get(authorization.principal.companyId, assignmentTripId);
+        return assignment
+          ? sendJson(req, res, 200, { assignment })
+          : sendJson(req, res, 404, { error: 'trip assignment not found' });
+      }
+
+      const raw = await readJson(req) as Record<string, unknown> | null;
+      const assignment = normalizeTripAssignment(
+        authorization.principal.companyId,
+        assignmentTripId,
+        {
+          vehicleId: typeof raw?.vehicleId === 'string' ? raw.vehicleId : undefined,
+          driverSubject: typeof raw?.driverSubject === 'string' ? raw.driverSubject : undefined,
+          khalashiSubject: typeof raw?.khalashiSubject === 'string' ? raw.khalashiSubject : undefined,
+        },
+        authorization.principal.sub,
+      );
+      const saved = await tripAccessRepository.upsert(assignment);
+      return sendJson(req, res, 200, { assignment: saved });
+    }
+
     if (url.pathname.startsWith('/api/trips/') && url.pathname.endsWith('/evidence')) {
       const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
       if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
       const rawTripId = url.pathname.slice('/api/trips/'.length, -'/evidence'.length);
       const tripId = decodeURIComponent(rawTripId).replace(/^\/+|\/+$/g, '');
       if (!tripId) return sendJson(req, res, 400, { error: 'tripId is required' });
+
+      const canAccessTrip = await tripAccessRepository.canAccess(authorization.principal, tripId);
+      if (!canAccessTrip) {
+        // Return 404 so a user cannot discover another person's trip by changing the URL.
+        return sendJson(req, res, 404, { error: 'trip not found' });
+      }
 
       if (method === 'GET') {
         const evidence = await evidenceStore.list(authorization.principal.companyId, tripId);
