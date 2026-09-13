@@ -130,6 +130,7 @@ export interface Trip {
     endLocationName: string;
     distanceKm: number;
     checkpoints: Checkpoint[];
+    estimatedDurationSec?: number;
   };
   scheduledStart: string;
   scheduledEnd: string;
@@ -140,6 +141,13 @@ export interface Trip {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+
+  // Compatibility aliases used by the richer operations UI. New code should
+  // prefer route.checkpoints, scheduledStart, estimatedTollCost and revenue.
+  checkpoints?: Checkpoint[];
+  scheduledDeparture?: string;
+  tollFeesEstimated?: number;
+  freightRevenue?: number;
 }
 
 export interface FuelLog {
@@ -153,13 +161,21 @@ export interface FuelLog {
   odometer: number;
   fuelStationName: string;
   paymentMethod: 'company_card' | 'driver_card' | 'cash';
-  riskStatus: 'normal' | 'suspicious';
+  riskStatus: 'normal' | 'suspicious' | 'verified';
   riskReason?: string;
   receiptUrl?: string;
+
+  // Compatibility aliases for India-first fuel views.
+  fuelStation?: string;
+  timestamp?: string;
+  fuelAmountLiters?: number;
+  calcEconomyKmPerLiter?: number;
+  odometerReading?: number;
+  auditNotes?: string;
 }
 
 export type MaintenancePriority = 'low' | 'medium' | 'high' | 'critical';
-export type MaintenanceStatus = 'open' | 'in_progress' | 'completed' | 'deferred';
+export type MaintenanceStatus = 'open' | 'in_progress' | 'completed' | 'deferred' | 'closed';
 
 export interface MaintenanceTicket {
   id: string;
@@ -175,6 +191,11 @@ export interface MaintenanceTicket {
   scheduledFor?: string;
   completedAt?: string;
   createdAt: string;
+
+  // Optional compatibility fields retained while legacy maintenance forms are migrated.
+  type?: string;
+  issueDescription?: string;
+  reportedBy?: string;
 }
 
 export interface ComplianceDocument {
@@ -253,8 +274,10 @@ export interface Shift {
   startTime: string;
   endTime: string;
   gracePeriodMinutes?: number;
+  gracePeriodMins?: number;
   breakMinutes?: number;
   workingDays: number[];
+  isNightShift?: boolean;
   isActive?: boolean;
 }
 
@@ -302,11 +325,17 @@ export interface AttendanceRecord {
   date: string;
   clockIn?: string;
   clockOut?: string;
-  status: 'present' | 'absent' | 'half_day' | 'leave';
+  status: 'present' | 'late' | 'absent' | 'half_day' | 'leave';
   workMinutes?: number;
   locationName?: string;
   latitude?: number;
   longitude?: number;
+
+  // Legacy/richer HR UI aliases.
+  checkInTime?: string;
+  checkOutTime?: string;
+  hoursWorked?: number;
+  overtimeHours?: number;
 }
 
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
@@ -324,9 +353,10 @@ export interface LeaveRequest {
   reviewedAt?: string;
   reviewedBy?: string;
   rejectionReason?: string;
+  totalDays?: number;
 }
 
-export type PayrollStatus = 'draft' | 'processed' | 'paid';
+export type PayrollStatus = 'draft' | 'processed' | 'approved' | 'paid' | 'disbursed';
 export type PaymentMethod = 'bank_transfer' | 'cash' | 'upi' | 'cheque';
 
 export interface PayrollRecord {
@@ -345,4 +375,13 @@ export interface PayrollRecord {
   paidAt?: string;
   paymentMethod?: PaymentMethod;
   transactionRef?: string;
+
+  // Compatibility aliases for the richer payroll ledger UI.
+  baseSalary?: number;
+  totalAllowances?: number;
+  overtimePay?: number;
+  overtimeHours?: number;
+  taxDeduction?: number;
+  pfDeduction?: number;
+  otherDeductions?: number;
 }
