@@ -1,4 +1,15 @@
-export type UserRole = 'super_admin' | 'company_admin' | 'fleet_manager' | 'dispatcher' | 'driver' | 'hr_manager';
+export type UserRole =
+  | 'super_admin'
+  | 'company_admin'
+  | 'owner'
+  | 'manager'
+  | 'fleet_manager'
+  | 'dispatcher'
+  | 'driver'
+  | 'khalashi'
+  | 'accountant'
+  | 'compliance'
+  | 'hr_manager';
 
 export type UserStatus = 'active' | 'suspended' | 'pending';
 
@@ -118,97 +129,103 @@ export interface Trip {
     startLocationName: string;
     endLocationName: string;
     distanceKm: number;
-    estimatedDurationSec: number;
-    actualDurationSec?: number;
+    checkpoints: Checkpoint[];
   };
-  checkpoints: Checkpoint[];
-  scheduledDeparture: string;
-  startedAt?: string;
-  completedAt?: string;
-  tollFeesEstimated: number;
-  freightRevenue: number;
+  scheduledStart: string;
+  scheduledEnd: string;
+  actualStart?: string;
+  actualEnd?: string;
+  estimatedTollCost: number;
+  revenue: number;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string | null;
 }
 
 export interface FuelLog {
   id: string;
   vehicleId: string;
   driverId: string;
-  timestamp: string;
-  fuelStation: string;
-  stationLatitude: number;
-  stationLongitude: number;
-  fuelAmountLiters: number;
+  date: string;
+  gallons: number;
+  costPerGallon: number;
   totalCost: number;
-  odometerReading: number;
-  calcEconomyKmPerLiter: number;
-  riskStatus: 'verified' | 'flagged_discrepancy' | 'high_risk_location';
-  auditNotes?: string;
+  odometer: number;
+  fuelStationName: string;
+  paymentMethod: 'company_card' | 'driver_card' | 'cash';
+  riskStatus: 'normal' | 'suspicious';
+  riskReason?: string;
+  receiptUrl?: string;
 }
+
+export type MaintenancePriority = 'low' | 'medium' | 'high' | 'critical';
+export type MaintenanceStatus = 'open' | 'in_progress' | 'completed' | 'deferred';
 
 export interface MaintenanceTicket {
   id: string;
   ticketNumber: string;
   vehicleId: string;
-  type: 'scheduled_pm' | 'breakdown' | 'repair' | 'inspection';
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  status: 'open' | 'in_progress' | 'waiting_parts' | 'closed';
-  issueDescription: string;
-  reportedBy: string;
-  technicianName?: string;
+  title: string;
+  description: string;
+  priority: MaintenancePriority;
+  status: MaintenanceStatus;
   estimatedCost: number;
   actualCost?: number;
-  serviceOdometer: number;
+  reportedAt: string;
+  scheduledFor?: string;
+  completedAt?: string;
   createdAt: string;
-  closedAt?: string;
-  partsReplaced?: string[];
 }
 
 export interface ComplianceDocument {
   id: string;
-  vehicleId: string;
-  documentType: 'RC' | 'Insurance' | 'PUC' | 'Fitness' | 'National Permit' | 'Road Tax';
+  vehicleId?: string;
+  driverId?: string;
+  documentType: string;
   documentNumber: string;
   issueDate: string;
   expiryDate: string;
-  verificationStatus: 'verified' | 'pending' | 'expired';
-  verifiedBy?: string;
+  verificationStatus: 'verified' | 'pending' | 'expired' | 'rejected';
   fileUrl?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
 }
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'void';
 
 export interface Invoice {
   id: string;
   invoiceNumber: string;
   customerName: string;
-  tripId?: string;
-  amount: number;
+  tripIds: string[];
+  subtotal: number;
   tax: number;
-  totalAmount: number;
-  issueDate: string;
+  total: number;
+  status: InvoiceStatus;
+  issuedDate: string;
   dueDate: string;
-  status: 'paid' | 'unpaid' | 'overdue';
-  items: {
-    description: string;
-    rate: number;
-    quantity: number;
-    amount: number;
-  }[];
+  paidDate?: string;
 }
 
-// Enterprise HR & Employee Management Models
-// Compatibility aliases preserve legacy forms while the HR module is migrated.
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  details: string;
+}
+
 export interface Department {
   id: string;
   companyId: string;
   name: string;
-  code: string;
-  description: string;
-  headOfDepartmentId?: string;
-  headOfDepartment?: string;
-  location?: string;
-  budget?: number;
+  code?: string;
+  description?: string;
+  managerEmployeeId?: string;
+  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
@@ -218,12 +235,12 @@ export interface Designation {
   id: string;
   companyId: string;
   title: string;
+  name?: string;
   code?: string;
-  departmentId: string;
+  departmentId?: string;
+  level?: number;
   description?: string;
-  level: 'entry' | 'mid' | 'senior' | 'lead' | 'executive' | number;
-  minSalary: number;
-  maxSalary: number;
+  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
@@ -233,169 +250,99 @@ export interface Shift {
   id: string;
   companyId: string;
   name: string;
-  code?: string;
   startTime: string;
   endTime: string;
-  breakDurationMins?: number;
-  gracePeriodMins: number;
-  workingDays: string[];
+  gracePeriodMinutes?: number;
+  breakMinutes?: number;
+  workingDays: number[];
   isActive?: boolean;
-  isNightShift?: boolean;
 }
+
+export type EmployeeStatus = 'active' | 'inactive' | 'on_leave' | 'terminated';
+export type EmploymentType = 'full_time' | 'part_time' | 'contract' | 'intern';
 
 export interface SalaryStructure {
-  baseSalary: number;
-  hraAllowance: number;
-  transportAllowance: number;
-  medicalAllowance: number;
-  specialAllowance: number;
-  performanceBonus: number;
-  taxDeductionPercent: number;
-  providentFundDeduction: number;
-  netMonthlySalary?: number;
+  basicMonthly: number;
+  hraMonthly?: number;
+  transportAllowanceMonthly?: number;
+  otherAllowanceMonthly?: number;
+  deductionsMonthly?: number;
+  basicSalary?: number;
+  allowances?: number;
+  deductions?: number;
+  overtimeRatePerHour?: number;
 }
-
-export type EmploymentType = 'full_time' | 'contract' | 'part_time' | 'probation';
-export type EmployeeStatus = 'active' | 'on_leave' | 'suspended' | 'terminated' | 'probation';
 
 export interface Employee {
   id: string;
   companyId: string;
   employeeCode: string;
-  firstName?: string;
-  lastName?: string;
   fullName: string;
   email: string;
   phone: string;
-  avatarUrl?: string;
   departmentId: string;
   designationId: string;
-  role: UserRole;
+  shiftId?: string;
   status: EmployeeStatus;
   employmentType: EmploymentType;
-  joinDate?: string;
-  joiningDate?: string;
-  birthDate?: string;
+  joiningDate: string;
   dateOfBirth?: string;
-  gender?: 'male' | 'female' | 'other';
-  shiftId: string;
-  isDriver: boolean;
-  linkedDriverId?: string;
-  salaryStructure: SalaryStructure;
-  bankDetails?: {
-    bankName: string;
-    accountNumber: string;
-    routingOrIfsc: string;
-  };
-  bankAccount?: {
-    bankName: string;
-    accountNumber: string;
-    routingNumber: string;
-    accountHolderName?: string;
-  };
-  emergencyContact?: {
-    name: string;
-    relation?: string;
-    relationship?: string;
-    phone: string;
-  };
+  address?: string;
+  emergencyContact?: string;
+  salary: SalaryStructure;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
 }
-
-export type AttendanceStatus = 'present' | 'late' | 'half_day' | 'absent' | 'on_leave';
 
 export interface AttendanceRecord {
   id: string;
   companyId: string;
   employeeId: string;
   date: string;
-  checkInTime: string;
-  checkOutTime?: string;
-  status: AttendanceStatus;
-  shiftId?: string;
-  hoursWorked: number;
-  overtimeHours: number;
-  clockInLatitude?: number;
-  clockInLongitude?: number;
+  clockIn?: string;
+  clockOut?: string;
+  status: 'present' | 'absent' | 'half_day' | 'leave';
+  workMinutes?: number;
   locationName?: string;
-  notes?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
-export type LeaveType = 'annual' | 'sick' | 'casual' | 'maternity_paternity' | 'unpaid';
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
 
 export interface LeaveRequest {
   id: string;
   companyId: string;
   employeeId: string;
-  leaveType: LeaveType;
+  leaveType: 'casual' | 'sick' | 'earned' | 'unpaid';
   startDate: string;
   endDate: string;
-  totalDays: number;
   reason: string;
   status: LeaveStatus;
-  approvedBy?: string;
-  rejectionReason?: string;
   appliedAt: string;
   reviewedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
 }
 
-export type PayrollStatus = 'draft' | 'approved' | 'disbursed';
-export type PaymentMethod = 'bank_transfer' | 'direct_deposit' | 'cheque';
+export type PayrollStatus = 'draft' | 'processed' | 'paid';
+export type PaymentMethod = 'bank_transfer' | 'cash' | 'upi' | 'cheque';
 
 export interface PayrollRecord {
   id: string;
   companyId: string;
-  payrollMonth: string;
   employeeId: string;
-  baseSalary: number;
-  totalAllowances: number;
-  overtimePay: number;
+  payrollMonth: string;
+  basicSalary: number;
+  allowances: number;
+  overtimeAmount: number;
+  deductions: number;
   grossSalary: number;
-  taxDeduction: number;
-  pfDeduction: number;
-  otherDeductions: number;
   netSalary: number;
-  daysPresent: number;
-  daysAbsent: number;
-  daysOnLeave: number;
-  overtimeHours: number;
   status: PayrollStatus;
-  paymentDate?: string;
-  paymentMethod: PaymentMethod;
+  generatedAt: string;
+  paidAt?: string;
+  paymentMethod?: PaymentMethod;
   transactionRef?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AuditLog {
-  id: string;
-  userId: string;
-  userEmail: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'STATUS_CHANGE';
-  collection:
-    | 'vehicles'
-    | 'trips'
-    | 'drivers'
-    | 'maintenance'
-    | 'compliance'
-    | 'billing'
-    | 'employees'
-    | 'departments'
-    | 'designations'
-    | 'attendance'
-    | 'leaves'
-    | 'payroll'
-    | 'shifts';
-  documentId: string;
-  summary: string;
-  changes: {
-    before?: Record<string, any>;
-    after?: Record<string, any>;
-  };
-  ipAddress: string;
-  timestamp: string;
 }
