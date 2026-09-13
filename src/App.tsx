@@ -14,8 +14,9 @@ import { AuditLogsView } from './views/AuditLogsView';
 import { HRView } from './views/HRView';
 import { DriverPortalView } from './views/DriverPortalView';
 import { KhalashiPortalView } from './views/KhalashiPortalView';
-import { OidcAuthGate } from './auth/OidcAuthGate';
+import { OidcAuthGate, useSecurePrincipal } from './auth/OidcAuthGate';
 import { canOpenTab, firstAllowedTab, portalForRole } from './auth/roleAccess';
+import type { UserRole } from './types';
 
 const RestrictedShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
@@ -27,14 +28,16 @@ const RestrictedShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
 const FleetAppContent: React.FC = () => {
   const { currentUser } = useFleet();
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => firstAllowedTab(currentUser.role));
-  const portal = portalForRole(currentUser.role);
+  const securePrincipal = useSecurePrincipal();
+  const effectiveRole: UserRole = securePrincipal?.role ?? currentUser.role;
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => firstAllowedTab(effectiveRole));
+  const portal = portalForRole(effectiveRole);
 
   useEffect(() => {
-    if (!canOpenTab(currentUser.role, activeTab)) {
-      setActiveTab(firstAllowedTab(currentUser.role));
+    if (!canOpenTab(effectiveRole, activeTab)) {
+      setActiveTab(firstAllowedTab(effectiveRole));
     }
-  }, [activeTab, currentUser.role]);
+  }, [activeTab, effectiveRole]);
 
   if (portal === 'driver') {
     return (
@@ -52,7 +55,7 @@ const FleetAppContent: React.FC = () => {
     );
   }
 
-  if (!canOpenTab(currentUser.role, activeTab)) {
+  if (!canOpenTab(effectiveRole, activeTab)) {
     return (
       <RestrictedShell>
         <div className="mx-auto max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
@@ -67,10 +70,10 @@ const FleetAppContent: React.FC = () => {
       <Header />
 
       <div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto">
-        <Sidebar activeTab={activeTab} setActiveTab={(tab) => canOpenTab(currentUser.role, tab) && setActiveTab(tab)} />
+        <Sidebar activeTab={activeTab} setActiveTab={(tab) => canOpenTab(effectiveRole, tab) && setActiveTab(tab)} />
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto max-h-[calc(100vh-4rem)]">
-          {activeTab === 'dashboard' && <DashboardView onNavigateTab={(tab) => canOpenTab(currentUser.role, tab) && setActiveTab(tab)} />}
+          {activeTab === 'dashboard' && <DashboardView onNavigateTab={(tab) => canOpenTab(effectiveRole, tab) && setActiveTab(tab)} />}
           {activeTab === 'vehicles' && <VehiclesView />}
           {activeTab === 'trips' && <TripsView />}
           {activeTab === 'drivers' && <DriversView />}
