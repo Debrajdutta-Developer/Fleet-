@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { useFleet } from '../context/FleetContext';
 import { allowedTabsForRole } from '../auth/roleAccess';
+import { useSecurePrincipal } from '../auth/OidcAuthGate';
+import type { UserRole } from '../types';
 
 export type ActiveTab =
   | 'dashboard'
@@ -32,7 +34,9 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   const { vehicles, trips, drivers, complianceDocs, currentCompany, currentUser, employees, leaveRequests } = useFleet();
-  const allowedTabs = allowedTabsForRole(currentUser.role);
+  const securePrincipal = useSecurePrincipal();
+  const effectiveRole: UserRole = securePrincipal?.role ?? currentUser.role;
+  const allowedTabs = allowedTabsForRole(effectiveRole);
 
   const activeVehiclesCount = vehicles.filter((v) => v.status === 'active' && !v.deletedAt).length;
   const inTransitTripsCount = trips.filter((t) => t.status === 'in_transit').length;
