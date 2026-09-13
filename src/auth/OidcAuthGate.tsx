@@ -1,31 +1,55 @@
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { LogIn, ShieldCheck } from 'lucide-react';
 import { beginOidcSignIn, oidcConfigured, restoreOidcSession } from './oidcSession';
+import { fetchSecurePrincipal, type SecurePrincipal } from './securePrincipal';
 
 type AuthState = 'loading' | 'authenticated' | 'unauthenticated' | 'error';
+
+const SecurePrincipalContext = createContext<SecurePrincipal | null>(null);
+
+export function useSecurePrincipal(): SecurePrincipal | null {
+  return useContext(SecurePrincipalContext);
+}
 
 export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [state, setState] = useState<AuthState>(oidcConfigured ? 'loading' : 'authenticated');
   const [error, setError] = useState('');
+  const [principal, setPrincipal] = useState<SecurePrincipal | null>(null);
 
   useEffect(() => {
     if (!oidcConfigured) return;
     let active = true;
+    const controller = new AbortController();
+
     restoreOidcSession()
-      .then((user) => {
-        if (active) setState(user ? 'authenticated' : 'unauthenticated');
+      .then(async (user) => {
+        if (!active) return;
+        if (!user) {
+          setPrincipal(null);
+          setState('unauthenticated');
+          return;
+        }
+        const verified = await fetchSecurePrincipal(controller.signal);
+        if (!active) return;
+        setPrincipal(verified);
+        setState('authenticated');
       })
       .catch((reason: unknown) => {
         if (!active) return;
+        setPrincipal(null);
         setError(reason instanceof Error ? reason.message : 'Sign-in could not be completed');
         setState('error');
       });
+
     return () => {
       active = false;
+      controller.abort();
     };
   }, []);
 
-  if (state === 'authenticated') return <>{children}</>;
+  if (state === 'authenticated') {
+    return <SecurePrincipalContext.Provider value={principal}>{children}</SecurePrincipalContext.Provider>;
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-white flex items-center justify-center">
@@ -35,10 +59,10 @@ export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) =>
         </div>
         <h1 className="mt-5 text-2xl font-bold">FleetOS Secure Sign-In</h1>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          Company data, live vehicle telemetry, finance and driver evidence require a verified organization session.
+          Company data, live vehicle telemetry, finance and worker evidence require a verified organization session.
         </p>
 
-        {state === 'loading' && <p className="mt-6 text-sm text-slate-300">Checking your session…</p>}
+        {state === 'loading' && <p className="mt-6 text-sm text-slate-300">Checking your session and role…</p>}
 
         {state === 'error' && (
           <div className="mt-5 rounded-xl border border-red-900/60 bg-red-950/40 p-3 text-sm text-red-300">
