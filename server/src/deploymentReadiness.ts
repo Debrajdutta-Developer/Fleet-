@@ -20,6 +20,10 @@ export function getDeploymentReadiness(): DeploymentReadiness {
   const nativeAuth = postgres && present('FLEETOS_JWT_SECRET');
   const identity = oidc || nativeAuth;
   const s3 = present('FLEETOS_EVIDENCE_S3_BUCKET') && present('FLEETOS_EVIDENCE_S3_REGION');
+  const supabaseStorage = present('FLEETOS_EVIDENCE_SUPABASE_URL')
+    && present('FLEETOS_EVIDENCE_SUPABASE_BUCKET')
+    && present('FLEETOS_EVIDENCE_SUPABASE_SERVICE_ROLE_KEY');
+  const durableEvidenceStorage = s3 || supabaseStorage;
   const providerMappings = present('FLEETOS_PROVIDER_MAPPINGS_JSON');
   const webOrigin = present('FLEETOS_WEB_ORIGIN');
   const ingestToken = present('FLEETOS_INGEST_TOKEN');
@@ -38,8 +42,12 @@ export function getDeploymentReadiness(): DeploymentReadiness {
       detail: postgres ? 'PostgreSQL persistence configured.' : 'DATABASE_URL is missing; only development fallbacks are available.',
     },
     {
-      key: 'evidence_object_storage', ok: s3, requiredForProduction: true,
-      detail: s3 ? 'S3-compatible evidence storage configured.' : 'Configure durable S3/R2/MinIO bucket and region.',
+      key: 'evidence_object_storage', ok: durableEvidenceStorage, requiredForProduction: true,
+      detail: supabaseStorage
+        ? 'Supabase Storage evidence backend configured.'
+        : s3
+          ? 'S3-compatible evidence storage configured.'
+          : 'Configure durable Supabase Storage or S3/R2/MinIO evidence storage.',
     },
     {
       key: 'web_origin', ok: webOrigin, requiredForProduction: true,
