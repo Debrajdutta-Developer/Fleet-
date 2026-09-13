@@ -25,6 +25,7 @@ registerConfiguredProviders(providerRegistry);
 
 const FINANCE_ROLES = new Set<TenantRole>(['owner', 'manager', 'accountant']);
 const ASSIGNMENT_ROLES = new Set<TenantRole>(['owner', 'manager', 'dispatcher']);
+const RESTRICTED_WORKER_ROLES = new Set<TenantRole>(['driver', 'khalashi']);
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
@@ -91,6 +92,10 @@ function requestHeaders(req: IncomingMessage): ProviderContext['headers'] {
   return Object.fromEntries(Object.entries(req.headers));
 }
 
+function isRestrictedWorker(role: TenantRole): boolean {
+  return RESTRICTED_WORKER_ROLES.has(role);
+}
+
 async function persistReading(reading: ReturnType<typeof normalizeTelemetry>): Promise<void> {
   store.upsert(reading);
   await historyRepository.append(reading);
@@ -138,6 +143,16 @@ const server = createServer(async (req, res) => {
       return sendJson(req, res, 200, { principal: { sub, companyId, role } });
     }
 
+    if (method === 'GET' && url.pathname === '/api/me/trips') {
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+      const assignments = await tripAccessRepository.listForPrincipal(authorization.principal);
+      return sendJson(req, res, 200, {
+        companyId: authorization.principal.companyId,
+        trips: assignments.map(({ tripId, vehicleId, updatedAt }) => ({ tripId, vehicleId, updatedAt })),
+      });
+    }
+
     if (method === 'POST' && url.pathname === '/api/telemetry/ingest') {
       if (!ingestToken) return sendJson(req, res, 503, { error: 'ingest token is not configured' });
       if (bearerToken(req) !== ingestToken) return sendJson(req, res, 401, { error: 'unauthorized' });
@@ -170,9 +185,15 @@ const server = createServer(async (req, res) => {
     if (method === 'GET' && url.pathname === '/api/telemetry/live') {
       const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
       if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+      let vehicles = store.list(authorization.principal.companyId);
+      if (isRestrictedWorker(authorization.principal.role)) {
+        const assignments = await tripAccessRepository.listForPrincipal(authorization.principal);
+        const allowedVehicleIds = new Set(assignments.map((row) => row.vehicleId).filter((id): id is string => Boolean(id)));
+        vehicles = vehicles.filter((reading) => allowedVehicleIds.has(reading.vehicleId));
+      }
       return sendJson(req, res, 200, {
         companyId: authorization.principal.companyId,
-        vehicles: store.list(authorization.principal.companyId),
+        vehicles,
         generatedAt: new Date().toISOString(),
       });
     }
@@ -181,6 +202,10 @@ const server = createServer(async (req, res) => {
       const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
       if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
       const vehicleId = decodeURIComponent(url.pathname.slice('/api/telemetry/live/'.length));
+      if (isRestrictedWorker(authorization.principal.role)) {
+        const allowed = await tripAccessRepository.canAccessVehicle(authorization.principal, vehicleId);
+        if (!allowed) return sendJson(req, res, 404, { error: 'vehicle not found' });
+      }
       const reading = store.get(authorization.principal.companyId, vehicleId);
       return reading
         ? sendJson(req, res, 200, reading)
@@ -190,9 +215,15 @@ const server = createServer(async (req, res) => {
     if (method === 'GET' && url.pathname === '/api/telemetry/history') {
       const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
       if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+      const vehicleId = url.searchParams.get('vehicleId')?.trim() || undefined;
+      if (isRestrictedWorker(authorization.principal.role)) {
+        if (!vehicleId) return sendJson(req, res, 403, { error: 'worker telemetry history requires an assigned vehicle' });
+        const allowed = await tripAccessRepository.canAccessVehicle(authorization.principal, vehicleId);
+        if (!allowed) return sendJson(req, res, 404, { error: 'vehicle not found' });
+      }
       const rows = await historyRepository.history({
         companyId: authorization.principal.companyId,
-        vehicleId: url.searchParams.get('vehicleId')?.trim() || undefined,
+        vehicleId,
         from: url.searchParams.get('from')?.trim() || undefined,
         to: url.searchParams.get('to')?.trim() || undefined,
         limit: Number(url.searchParams.get('limit') ?? 500),
@@ -276,7 +307,6 @@ const server = createServer(async (req, res) => {
 
       const canAccessTrip = await tripAccessRepository.canAccess(authorization.principal, tripId);
       if (!canAccessTrip) {
-        // Return 404 so a user cannot discover another person's trip by changing the URL.
         return sendJson(req, res, 404, { error: 'trip not found' });
       }
 
