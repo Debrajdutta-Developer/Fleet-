@@ -22,25 +22,28 @@ export interface TenantResource {
   companyId: string;
 }
 
+const ADMIN_PERMISSIONS: readonly FleetPermission[] = [
+  'fleet.read',
+  'fleet.write',
+  'trip.dispatch',
+  'driver.manage',
+  'finance.read',
+  'finance.write',
+  'compliance.manage',
+  'hr.manage',
+  'audit.read',
+];
+
 const ROLE_PERMISSIONS: Record<UserRole, readonly FleetPermission[]> = {
-  super_admin: [
+  super_admin: ADMIN_PERMISSIONS,
+  company_admin: ADMIN_PERMISSIONS,
+  owner: ADMIN_PERMISSIONS,
+  manager: [
     'fleet.read',
     'fleet.write',
     'trip.dispatch',
     'driver.manage',
     'finance.read',
-    'finance.write',
-    'compliance.manage',
-    'hr.manage',
-    'audit.read',
-  ],
-  company_admin: [
-    'fleet.read',
-    'fleet.write',
-    'trip.dispatch',
-    'driver.manage',
-    'finance.read',
-    'finance.write',
     'compliance.manage',
     'hr.manage',
     'audit.read',
@@ -55,6 +58,9 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly FleetPermission[]> = {
   ],
   dispatcher: ['fleet.read', 'trip.dispatch'],
   driver: ['fleet.read'],
+  khalashi: ['fleet.read'],
+  accountant: ['fleet.read', 'finance.read', 'finance.write'],
+  compliance: ['fleet.read', 'compliance.manage', 'audit.read'],
   hr_manager: ['hr.manage'],
 };
 
