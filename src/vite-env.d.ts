@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_TELEMETRY_API_URL?: string;
   readonly VITE_ENABLE_DEMO_TELEMETRY?: string;
+  readonly VITE_FLEETOS_AUTH_MODE?: 'native' | 'oidc' | 'demo';
   readonly VITE_OIDC_AUTHORITY?: string;
   readonly VITE_OIDC_CLIENT_ID?: string;
   readonly VITE_OIDC_REDIRECT_URI?: string;
