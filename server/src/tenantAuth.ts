@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 
-export type TenantRole = 'owner' | 'manager' | 'dispatcher' | 'driver' | 'accountant' | 'compliance';
+export type TenantRole = 'owner' | 'manager' | 'dispatcher' | 'driver' | 'khalashi' | 'accountant' | 'compliance';
 
 export interface TenantPrincipal {
   sub: string;
@@ -27,7 +27,7 @@ interface JwtClaims {
   aud?: unknown;
 }
 
-const ROLES = new Set<TenantRole>(['owner', 'manager', 'dispatcher', 'driver', 'accountant', 'compliance']);
+const ROLES = new Set<TenantRole>(['owner', 'manager', 'dispatcher', 'driver', 'khalashi', 'accountant', 'compliance']);
 
 function decodeBase64Url(value: string): Buffer {
   return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
