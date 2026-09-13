@@ -52,7 +52,7 @@ export class EvidenceStore {
   }
 
   async upload(req: IncomingMessage, principal: TenantPrincipal, tripId: string, evidenceType: string): Promise<TripEvidenceRecord> {
-    if (!['driver', 'owner', 'manager', 'dispatcher', 'accountant'].includes(principal.role)) {
+    if (!['driver', 'khalashi', 'owner', 'manager', 'dispatcher', 'accountant'].includes(principal.role)) {
       throw new Error('role is not allowed to upload trip evidence');
     }
     if (!EVIDENCE_TYPES.has(evidenceType as EvidenceType)) throw new Error('unsupported evidence type');
