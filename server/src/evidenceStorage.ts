@@ -143,13 +143,14 @@ export class SupabaseEvidenceStorage implements EvidenceStorage {
   }
 
   async put(key: string, body: Buffer, contentType: string): Promise<void> {
+    const payload = Uint8Array.from(body);
     const response = await fetch(this.objectUrl(key), {
       method: 'POST',
       headers: {
         ...this.headers(contentType),
         'x-upsert': 'false',
       },
-      body,
+      body: payload,
     });
     await this.assertOk(response, 'upload');
   }
