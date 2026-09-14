@@ -6,6 +6,7 @@ import { getFleetAccessToken, clearFleetAccessToken } from './runtimeSession';
 import { nativeFleetLogin } from './nativeAuthClient';
 import { PublicOnboardingPanel } from './PublicOnboardingPanel';
 import { OwnerDriverLinkWidget } from './OwnerDriverLinkWidget';
+import { PlatformApprovalPanel } from './PlatformApprovalPanel';
 
 type AuthState = 'loading' | 'authenticated' | 'unauthenticated' | 'error';
 type AuthMode = 'native' | 'oidc' | 'demo';
@@ -26,6 +27,7 @@ function configuredAuthMode(): AuthMode {
 
 export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => {
   const mode = useMemo(configuredAuthMode, []);
+  const showPlatformAdmin = useMemo(() => new URLSearchParams(window.location.search).get('platform-admin') === '1', []);
   const [state, setState] = useState<AuthState>(mode === 'demo' ? 'authenticated' : 'loading');
   const [error, setError] = useState('');
   const [principal, setPrincipal] = useState<SecurePrincipal | null>(null);
@@ -88,6 +90,7 @@ export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) =>
             <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-teal-400"><KeyRound className="h-4 w-4" />Sign in securely</button>
           </form>
           <PublicOnboardingPanel />
+          {showPlatformAdmin && <PlatformApprovalPanel />}
         </>}
         {mode === 'oidc' && state !== 'loading' && <button type="button" onClick={() => { setError(''); setState('loading'); beginOidcSignIn().catch((reason: unknown) => { setError(reason instanceof Error ? reason.message : 'Unable to start sign-in'); setState('error'); }); }} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-teal-400"><LogIn className="h-4 w-4" />Sign in to FleetOS</button>}
       </section>
