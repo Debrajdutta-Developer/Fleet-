@@ -25,6 +25,15 @@ function configuredAuthMode(): AuthMode {
   return oidcConfigured ? 'oidc' : 'native';
 }
 
+function setRolePortalUrl(principal: SecurePrincipal): void {
+  const safeCompany = encodeURIComponent(principal.companyId);
+  const safeSubject = encodeURIComponent(principal.sub);
+  const hash = principal.role === 'driver' || principal.role === 'khalashi'
+    ? `#/worker/${principal.role}/${safeSubject}`
+    : `#/company/${safeCompany}/${principal.role}`;
+  if (window.location.hash !== hash) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hash}`);
+}
+
 export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) => {
   const mode = useMemo(configuredAuthMode, []);
   const showPlatformAdmin = useMemo(() => new URLSearchParams(window.location.search).get('platform-admin') === '1', []);
@@ -48,6 +57,7 @@ export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) =>
       }
       const verified = await fetchSecurePrincipal(controller.signal);
       if (!active) return;
+      setRolePortalUrl(verified);
       setPrincipal(verified); setState('authenticated');
     };
     restore().catch((reason: unknown) => {
@@ -64,6 +74,7 @@ export const OidcAuthGate: React.FC<React.PropsWithChildren> = ({ children }) =>
     event.preventDefault(); setError(''); setState('loading');
     try {
       const session = await nativeFleetLogin(email, password);
+      setRolePortalUrl(session.principal);
       setPrincipal(session.principal); setPassword(''); setState('authenticated');
     } catch (reason) {
       clearFleetAccessToken(); setPrincipal(null);
