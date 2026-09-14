@@ -11,6 +11,7 @@ import { createSettlementRepository, normalizeSettlementTerms } from './settleme
 import { createTripAccessRepository, normalizeTripAssignment } from './tripAccessRepository.js';
 import { getDeploymentReadiness } from './deploymentReadiness.js';
 import { NativeAuthService } from './nativeAuth.js';
+import { OnboardingService } from './onboarding.js';
 
 const port = Number(process.env.PORT ?? 8787);
 const ingestToken = process.env.FLEETOS_INGEST_TOKEN ?? '';
@@ -23,6 +24,7 @@ const providerRegistry = new ProviderRegistry();
 const tenantAuthorizer = new TenantAuthorizer();
 const evidenceStore = new EvidenceStore();
 const nativeAuth = new NativeAuthService();
+const onboarding = process.env.DATABASE_URL?.trim() ? new OnboardingService(nativeAuth) : null;
 registerConfiguredProviders(providerRegistry);
 
 const FINANCE_ROLES = new Set<TenantRole>(['owner', 'manager', 'accountant']);
@@ -35,7 +37,7 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
   res.setHeader('access-control-allow-origin', origin);
   res.setHeader('vary', 'Origin');
   res.setHeader('access-control-allow-methods', 'GET,POST,PUT,OPTIONS');
-  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept,X-FleetOS-Company-Id,X-File-Name');
+  res.setHeader('access-control-allow-headers', 'Authorization,Content-Type,Accept,X-FleetOS-Company-Id,X-File-Name,X-FleetOS-Platform-Admin-Token');
   res.setHeader('access-control-max-age', '600');
 }
 
@@ -64,6 +66,11 @@ function bearerToken(req: IncomingMessage): string {
   return header.startsWith('Bearer ') ? header.slice(7) : '';
 }
 
+function platformAdminToken(req: IncomingMessage): string {
+  const value = req.headers['x-fleetos-platform-admin-token'];
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
 function providerIdFromPath(pathname: string): string | undefined {
   const prefix = '/api/providers/';
   const suffix = '/ingest';
@@ -84,6 +91,15 @@ function settlementVehicleIdFromPath(pathname: string): string | undefined {
 function tripIdFromAssignmentPath(pathname: string): string | undefined {
   const prefix = '/api/trips/';
   const suffix = '/assignment';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
+  const encoded = pathname.slice(prefix.length, -suffix.length).replace(/^\/+|\/+$/g, '');
+  if (!encoded || encoded.includes('/')) return undefined;
+  return decodeURIComponent(encoded).trim() || undefined;
+}
+
+function platformApplicationIdFromPath(pathname: string): string | undefined {
+  const prefix = '/api/platform/applications/';
+  const suffix = '/approve';
   if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return undefined;
   const encoded = pathname.slice(prefix.length, -suffix.length).replace(/^\/+|\/+$/g, '');
   if (!encoded || encoded.includes('/')) return undefined;
@@ -123,6 +139,7 @@ const server = createServer(async (req, res) => {
         jwtEnabled: tenantAuthorizer.jwtEnabled,
         oidcEnabled: tenantAuthorizer.oidcEnabled,
         nativeAuthEnabled: nativeAuth.enabled,
+        onboardingEnabled: Boolean(onboarding),
         telemetryHistoryRepository: historyRepository.kind,
         settlementRepository: settlementRepository.kind,
         tripAccessRepository: tripAccessRepository.kind,
@@ -137,6 +154,48 @@ const server = createServer(async (req, res) => {
 
     if (method === 'GET' && url.pathname === '/api/providers') {
       return sendJson(req, res, 200, { providers: providerRegistry.list() });
+    }
+
+    if (method === 'POST' && url.pathname === '/api/onboarding/companies') {
+      if (!onboarding) return sendJson(req, res, 503, { error: 'company onboarding is not configured' });
+      const application = await onboarding.submitCompany(await readJson(req));
+      return sendJson(req, res, 201, { application });
+    }
+
+    if (method === 'POST' && url.pathname === '/api/onboarding/drivers') {
+      if (!onboarding) return sendJson(req, res, 503, { error: 'driver onboarding is not configured' });
+      const driver = await onboarding.registerDriver(await readJson(req));
+      return sendJson(req, res, 201, { driver });
+    }
+
+    if (method === 'POST' && url.pathname === '/api/onboarding/activate-owner') {
+      if (!onboarding) return sendJson(req, res, 503, { error: 'company onboarding is not configured' });
+      const account = await onboarding.activateOwner(await readJson(req));
+      return sendJson(req, res, 201, { account });
+    }
+
+    if (method === 'POST' && url.pathname === '/api/onboarding/link-driver') {
+      if (!onboarding) return sendJson(req, res, 503, { error: 'driver onboarding is not configured' });
+      const authorization = await authorizeTenantRequest(req, tenantAuthorizer);
+      if (!authorization.ok) return sendJson(req, res, authorization.status, { error: authorization.error });
+      const driver = await onboarding.linkDriver(await readJson(req), authorization.principal);
+      return sendJson(req, res, 200, { driver });
+    }
+
+    if (method === 'GET' && url.pathname === '/api/platform/applications') {
+      if (!onboarding) return sendJson(req, res, 503, { error: 'company onboarding is not configured' });
+      const applications = await onboarding.listApplications(platformAdminToken(req));
+      return sendJson(req, res, 200, { applications });
+    }
+
+    const approvalApplicationId = method === 'POST' ? platformApplicationIdFromPath(url.pathname) : undefined;
+    if (approvalApplicationId) {
+      if (!onboarding) return sendJson(req, res, 503, { error: 'company onboarding is not configured' });
+      const approval = await onboarding.approveApplication(approvalApplicationId, platformAdminToken(req));
+      const activationUrl = allowedOrigin
+        ? `${allowedOrigin}/?activate-company=1&applicationId=${encodeURIComponent(approval.application.id)}&token=${encodeURIComponent(approval.activationToken)}`
+        : undefined;
+      return sendJson(req, res, 200, { approval, activationUrl });
     }
 
     if (method === 'POST' && url.pathname === '/api/auth/login') {
