@@ -3,6 +3,7 @@ import type { ActiveTab } from '../components/Sidebar';
 
 export type PortalKind = 'owner' | 'manager' | 'accountant' | 'driver' | 'khalashi' | 'operations';
 
+const NO_TABS = new Set<ActiveTab>();
 const OWNER_TABS = new Set<ActiveTab>([
   'dashboard', 'vehicles', 'trips', 'drivers', 'hr', 'maintenance', 'compliance', 'billing', 'audit',
 ]);
@@ -28,6 +29,7 @@ export function allowedTabsForRole(role: UserRole): ReadonlySet<ActiveTab> {
   if (portal === 'owner') return OWNER_TABS;
   if (portal === 'manager') return MANAGER_TABS;
   if (portal === 'accountant') return ACCOUNTANT_TABS;
+  if (portal === 'driver' || portal === 'khalashi') return NO_TABS;
   return OPERATIONS_TABS;
 }
 
