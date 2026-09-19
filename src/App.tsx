@@ -15,89 +15,12 @@ import { HRView } from './views/HRView';
 import { DriverPortalView } from './views/DriverPortalView';
 import { KhalashiPortalView } from './views/KhalashiPortalView';
 import { OidcAuthGate, useSecurePrincipal } from './auth/OidcAuthGate';
+import { CompanyUserManagement } from './auth/CompanyUserManagement';
+import { OwnerDriverLinkWidget } from './auth/OwnerDriverLinkWidget';
 import { canOpenTab, firstAllowedTab, portalForRole } from './auth/roleAccess';
 import type { UserRole } from './types';
-
-const RestrictedShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
-    <Header />
-    <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
-    <Toasts />
-  </div>
-);
-
-const FleetAppContent: React.FC = () => {
-  const { currentUser } = useFleet();
-  const securePrincipal = useSecurePrincipal();
-  const effectiveRole: UserRole = securePrincipal?.role ?? currentUser.role;
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => firstAllowedTab(effectiveRole));
-  const portal = portalForRole(effectiveRole);
-
-  useEffect(() => {
-    if (!canOpenTab(effectiveRole, activeTab)) {
-      setActiveTab(firstAllowedTab(effectiveRole));
-    }
-  }, [activeTab, effectiveRole]);
-
-  if (portal === 'driver') {
-    return (
-      <RestrictedShell>
-        <DriverPortalView />
-      </RestrictedShell>
-    );
-  }
-
-  if (portal === 'khalashi') {
-    return (
-      <RestrictedShell>
-        <KhalashiPortalView />
-      </RestrictedShell>
-    );
-  }
-
-  if (!canOpenTab(effectiveRole, activeTab)) {
-    return (
-      <RestrictedShell>
-        <div className="mx-auto max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-          This account is not authorized to open that FleetOS section.
-        </div>
-      </RestrictedShell>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
-      <Header />
-
-      <div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto">
-        <Sidebar activeTab={activeTab} setActiveTab={(tab) => canOpenTab(effectiveRole, tab) && setActiveTab(tab)} />
-
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto max-h-[calc(100vh-4rem)]">
-          {activeTab === 'dashboard' && <DashboardView onNavigateTab={(tab) => canOpenTab(effectiveRole, tab) && setActiveTab(tab)} />}
-          {activeTab === 'vehicles' && <VehiclesView />}
-          {activeTab === 'trips' && <TripsView />}
-          {activeTab === 'drivers' && <DriversView />}
-          {activeTab === 'hr' && <HRView />}
-          {activeTab === 'maintenance' && <MaintenanceFuelView />}
-          {activeTab === 'compliance' && <ComplianceVaultView />}
-          {activeTab === 'billing' && <BillingView />}
-          {activeTab === 'audit' && <AuditLogsView />}
-        </main>
-      </div>
-
-      <Toasts />
-    </div>
-  );
-};
-
-export const App: React.FC = () => {
-  return (
-    <OidcAuthGate>
-      <FleetProvider>
-        <FleetAppContent />
-      </FleetProvider>
-    </OidcAuthGate>
-  );
-};
-
+const RestrictedShell:React.FC<{children:React.ReactNode}>=({children})=><div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors"><Header/><main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">{children}</main><Toasts/></div>;
+const FleetAppContent:React.FC=()=>{const{currentUser}=useFleet();const securePrincipal=useSecurePrincipal();const effectiveRole:UserRole=securePrincipal?.role??currentUser.role;const[activeTab,setActiveTab]=useState<ActiveTab>(()=>firstAllowedTab(effectiveRole));const portal=portalForRole(effectiveRole);useEffect(()=>{if(!canOpenTab(effectiveRole,activeTab))setActiveTab(firstAllowedTab(effectiveRole));},[activeTab,effectiveRole]);if(portal==='driver')return <RestrictedShell><DriverPortalView/></RestrictedShell>;if(portal==='khalashi')return <RestrictedShell><KhalashiPortalView/></RestrictedShell>;if(!canOpenTab(effectiveRole,activeTab))return <RestrictedShell><div className="mx-auto max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">This account is not authorized to open that FleetOS section.</div></RestrictedShell>;
+return <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors"><Header/><div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto"><Sidebar activeTab={activeTab} setActiveTab={(tab)=>canOpenTab(effectiveRole,tab)&&setActiveTab(tab)}/><main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto max-h-[calc(100vh-4rem)]">{activeTab==='dashboard'&&<><DashboardView onNavigateTab={(tab)=>canOpenTab(effectiveRole,tab)&&setActiveTab(tab)}/><CompanyUserManagement principal={securePrincipal}/></>}{activeTab==='vehicles'&&<VehiclesView/>}{activeTab==='trips'&&<TripsView/>}{activeTab==='drivers'&&<DriversView/>}{activeTab==='hr'&&<HRView/>}{activeTab==='maintenance'&&<MaintenanceFuelView/>}{activeTab==='compliance'&&<ComplianceVaultView/>}{activeTab==='billing'&&<BillingView/>}{activeTab==='audit'&&<AuditLogsView/>}</main></div><OwnerDriverLinkWidget principal={securePrincipal}/><Toasts/></div>};
+export const App:React.FC=()=> <OidcAuthGate><FleetProvider><FleetAppContent/></FleetProvider></OidcAuthGate>;
 export default App;
