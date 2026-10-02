@@ -20,10 +20,8 @@ import type {
 
 /**
  * Production data boundary.
- *
- * FleetOS must never seed a tenant with fabricated company, user, fleet,
- * finance, HR, compliance, or telemetry records. Real records are loaded
- * from authenticated backend/provider integrations only.
+ * No tenant, user, fleet, finance, HR, compliance, or telemetry records are
+ * seeded here. Authenticated backend/provider data is the only source of truth.
  */
 export const DEMO_SEED_VERSION = 'disabled';
 
@@ -38,7 +36,15 @@ export const initialCompanies: Company[] = [{
   fastagBalance: 0,
 }];
 
-export const initialUsers: User[] = [];
+export const initialUsers: User[] = [{
+  uid: '',
+  email: '',
+  displayName: '',
+  role: 'owner',
+  companyId: '',
+  status: 'pending',
+}];
+
 export const initialVehicles: Vehicle[] = [];
 export const initialDrivers: Driver[] = [];
 export const initialTrips: Trip[] = [];
