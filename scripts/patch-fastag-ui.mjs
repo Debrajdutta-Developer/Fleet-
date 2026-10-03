@@ -15,6 +15,6 @@ source = source.replace(/\n\s*const \[showTopUpModal, setShowTopUpModal\] = useS
 source = source.replace(/\n\s*const handleTopUp = \(e: React\.FormEvent\) => \{[\s\S]*?\n\s*\};\n/, '\n');
 source = source.replace(/\n\s*<button\n\s*onClick=\{\(\) => setShowTopUpModal\(true\)\}[\s\S]*?<\/button>/, '');
 source = source.replace(/\{\/\* FASTag Toll Pool Card \*\/\}[\s\S]*?\{\/\* Invoices Ledger Table \*\/\}/, '<FastagRechargePanel />\n\n      {/* Invoices Ledger Table */}');
-source = source.replace(/\n\s*\{\/\* Top-Up FASTag Balance Modal \*\/\}[\s\S]*?\n\s*\}\n\s*\}\n\s*<\/div>\n\s*\);/, '\n    </div>\n  );');
+source = source.replace(/\n\s*\{\/\* Top-Up FASTag Balance Modal \*\/\}[\s\S]*?\n\s*<\/div>\n\s*\}\n\s*\);/, '\n    </div>\n  );');
 
 fs.writeFileSync(file, source);
