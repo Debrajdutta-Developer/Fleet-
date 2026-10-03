@@ -1,0 +1,71 @@
+name: Web and Telemetry CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'index.html'
+      - 'package.json'
+      - 'tsconfig*.json'
+      - 'vite.config.*'
+      - '.github/workflows/web_ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'index.html'
+      - 'package.json'
+      - 'tsconfig*.json'
+      - 'vite.config.*'
+      - '.github/workflows/web_ci.yml'
+
+jobs:
+  validate-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install web dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+  validate-telemetry-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package.json
+
+      - name: Install telemetry server dependencies
+        working-directory: server
+        run: npm install --no-audit --no-fund
+
+      - name: Compile and run provider contract tests
+        working-directory: server
+        run: npm test

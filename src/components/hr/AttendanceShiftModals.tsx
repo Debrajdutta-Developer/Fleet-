@@ -77,7 +77,7 @@ export const ShiftModal: React.FC<ShiftModalProps> = ({ shift, onClose }) => {
               <Clock className="h-5 w-5" />
             </div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              {isEditing ? `Edit Shift: ${shift.name}` : 'Create Shift Schedule'}
+              {isEditing ? `Edit Shift: ${shift?.name ?? ''}` : 'Create Shift Schedule'}
             </h2>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">

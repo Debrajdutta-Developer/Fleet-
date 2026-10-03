@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFleet } from '../context/FleetContext';
 import { Invoice } from '../types';
+import { SettlementDesk } from '../components/finance/SettlementDesk';
 import {
   CreditCard,
   TrendingUp,
@@ -25,6 +26,12 @@ export const BillingView: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState(500);
+
+  const formatMoney = (value: number) => new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: currentCompany.currency || 'INR',
+    maximumFractionDigits: 0,
+  }).format(value);
 
   // Calculate high-level financial P&L
   const totalGrossRevenue = invoices.reduce((acc, inv) => acc + inv.totalAmount, 0);
@@ -86,7 +93,7 @@ export const BillingView: React.FC = () => {
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
             <span className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-              ${totalGrossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {formatMoney(totalGrossRevenue)}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -106,7 +113,7 @@ export const BillingView: React.FC = () => {
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
             <span className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-              ${totalFuelExpense.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {formatMoney(totalFuelExpense)}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -126,7 +133,7 @@ export const BillingView: React.FC = () => {
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
             <span className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-              ${totalMaintenanceExpense.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {formatMoney(totalMaintenanceExpense)}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -146,15 +153,17 @@ export const BillingView: React.FC = () => {
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
             <span className="font-display text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              ${netOperatingMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {formatMoney(netOperatingMargin)}
             </span>
             <span className="text-xs font-bold text-emerald-600">({marginPercentage}%)</span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Positive cashflow generated
+            Operating contribution before unrecorded costs and taxes
           </p>
         </div>
       </div>
+
+      <SettlementDesk />
 
       {/* FASTag Toll Pool Card */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -164,11 +173,11 @@ export const BillingView: React.FC = () => {
             <span>FASTag Electronic Toll Pool</span>
           </div>
           <h3 className="text-2xl font-bold font-display mt-1">
-            ${currentCompany.fastagBalance.toFixed(2)}{' '}
+            {formatMoney(currentCompany.fastagBalance)}{' '}
             <span className="text-xs font-normal text-slate-400">Available across all active RFID transponders</span>
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Auto-replenishment threshold trigger: <span className="text-amber-400 font-semibold">$300.00</span>
+            Auto-replenishment threshold trigger: <span className="text-amber-400 font-semibold">{formatMoney(300)}</span>
           </p>
         </div>
 
@@ -188,7 +197,7 @@ export const BillingView: React.FC = () => {
               Customer Freight Invoices & Ledgers
             </h3>
             <p className="text-xs text-slate-500">
-              Tax invoices with automated fuel surcharge calculations
+              Freight invoices based on recorded trip billing; tax is configured separately
             </p>
           </div>
 
@@ -235,7 +244,7 @@ export const BillingView: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
-                      ${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      {formatMoney(inv.totalAmount)}
                     </td>
 
                     <td className="py-3 px-4 text-slate-500">

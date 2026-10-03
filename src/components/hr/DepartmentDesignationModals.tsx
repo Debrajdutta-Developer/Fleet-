@@ -67,7 +67,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({ department, on
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                {isEditing ? `Edit Department: ${department.name}` : 'Create Department'}
+                {isEditing ? `Edit Department: ${department?.name ?? ''}` : 'Create Department'}
               </h2>
               <p className="text-xs text-slate-500">{currentCompany.name}</p>
             </div>
@@ -251,7 +251,7 @@ export const DesignationModal: React.FC<DesignationModalProps> = ({ designation,
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                {isEditing ? `Edit Designation: ${designation.title}` : 'Create Designation'}
+                {isEditing ? `Edit Designation: ${designation?.title ?? ''}` : 'Create Designation'}
               </h2>
               <p className="text-xs text-slate-500">{currentCompany.name}</p>
             </div>

@@ -142,7 +142,7 @@ export const EmployeeDetailDrawer: React.FC<EmployeeDetailDrawerProps> = ({
             </div>
             <div className="flex items-center space-x-1.5 text-slate-600 dark:text-slate-400">
               <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <span>Joined {new Date(employee.joiningDate).toLocaleDateString()}</span>
+              <span>Joined {employee.joiningDate || employee.joinDate ? new Date(employee.joiningDate ?? employee.joinDate!).toLocaleDateString() : '—'}</span>
             </div>
           </div>
         </div>
